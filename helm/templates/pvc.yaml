@@ -1,0 +1,12 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: garmin-scraper
+  namespace: monitoring
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: container-storage
+  resources:
+    requests:
+      storage: 300Mi

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garmin-scraper
+  labels:
+    app: garmin-scraper
+spec:
+  replicas: 0
+  selector: 
+    matchLabels:
+      app: garmin-scraper
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: garmin-scraper
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/path: '/metrics'
+        prometheus.io/port: '8080'
+    spec:
+      volumes:
+      - name: garmin-scraper
+        persistentVolumeClaim:
+          claimName: garmin-scraper
+      containers:
+      - name: garmin-scraper
+        image: ciarancorson/prom-garmin-scraper:{{.Values.garminScraper.image.version}}
+        imagePullPolicy: Always
+        env:
+        - name: GARMIN_USER
+          value: {{.Values.garminScraper.garminUser }}
+        - name: GARMIN_PASS
+          valueFrom:
+            secretKeyRef:
+              name: garmin-secret
+              key: GARMIN_PASS
+        - name: SLACK_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: garmin-secret
+              key: SLACK_BOT_TOKEN
+        - name: GARTH_FOLDER
+          value: /opt/garmin-scraper
+        - name: SLACK_CHANNEL
+          value:
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - mountPath: "/opt/garmin-scraper"
+          name: garmin-scraper  
+      imagePullSecrets:
+        - name: docker-regcred
+    
