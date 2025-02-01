@@ -5,7 +5,7 @@ metadata:
   labels:
     app: garmin-scraper
 spec:
-  replicas: 0
+  replicas: 1
   selector: 
     matchLabels:
       app: garmin-scraper
@@ -33,7 +33,7 @@ spec:
         imagePullPolicy: Always
         env:
         - name: GARMIN_USER
-          value: {{.Values.garminScraper.garminUser }}
+          value: {{.Values.garminScraper.garminUser}}
         - name: GARMIN_PASS
           valueFrom:
             secretKeyRef:

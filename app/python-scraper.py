@@ -4,7 +4,7 @@ from flask import request
 from garmin.connector import Connector
 from waitress import serve
 import prometheus_client
-from prometheus_client import make_wsgi_app, REGISTRY
+from prometheus_client import make_wsgi_app
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 from garmin.metrics import Metrics
