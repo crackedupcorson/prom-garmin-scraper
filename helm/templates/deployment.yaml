@@ -29,7 +29,7 @@ spec:
           claimName: garmin-scraper
       containers:
       - name: garmin-scraper
-        image: ciarancorson/prom-garmin-scraper:{{.Values.garminScraper.image.version}}
+        image: ghcr.io/crackedupcorson/prom-garmin-scraper:{{.Values.garminScraper.image.version}}
         imagePullPolicy: Always
         env:
         - name: GARMIN_USER
