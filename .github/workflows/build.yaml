@@ -19,7 +19,18 @@ jobs:
       # Checkout the repository
       - name: Checkout Repository
         uses: actions/checkout@v4
-
+      
+      # Install python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with: 
+          python-version: '3.12'
+      # Install Dependencies & Run Tests
+      - name: Install Deps & Run Tests
+        run: |
+          python  -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest
       # Set up QEMU for cross-platform builds
       - name: Set up QEMU (for cross-platform builds)
         uses: docker/setup-qemu-action@v3

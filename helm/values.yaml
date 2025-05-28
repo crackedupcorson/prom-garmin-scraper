@@ -1,0 +1,7 @@
+garminScraper:
+  garminUser: testUser
+  garminPass: dummyPass
+  slackBotToken: dummyToken
+  dockerconfigjson: dummyConfig
+  image:
+    version: '9'

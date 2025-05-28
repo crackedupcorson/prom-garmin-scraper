@@ -1,0 +1,89 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: garmin-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prom-stack
+spec:
+  groups:
+    - name: sync-alerts
+      rules:
+        - alert: GarminDataStale
+          expr: (time() - lastUploadSyncTime) > (24 * 60 * 60)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Garmin data has not been synced in over 24 hours"
+            description: "Your Garmin data is stale. Please sync your watch."
+    - name: health-alerts
+      rules:
+        # Alert: Spike in 7-Day Resting Heart Rate
+        - alert: RestingHeartRateSpike
+          expr: lastSevenDaysAvgRestingHeartRate > (avg_over_time(lastSevenDaysAvgRestingHeartRate[7d]) * 1.1)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Spike in 7-day resting heart rate"
+            description: "Your 7-day average resting heart rate has spiked by more than 10%. This could indicate sickness, overtraining, or stress."
+
+        # Alert: Very Sedentary Today
+        - alert: SedentaryBehavior
+          expr: sedentarySeconds > (12 * 60 * 60)  # More than 12 hours sedentary
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "You’ve been very sedentary today"
+            description: "You’ve spent more than 12 hours sedentary today. Consider taking a break and moving around."
+
+        # Alert: High Stress Levels Lately
+        - alert: ElevatedStressLevels
+          expr: avg_over_time(averageStressLevel[3d]) > 70
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Elevated stress levels over the past 3 days"
+            description: "Your average stress level over the past 3 days has been above 70. Consider relaxation techniques or reducing workload."
+
+        # Alert: Low Body Battery Recovery
+        - alert: LowBodyBatteryRecovery
+          expr: bodyBatteryDuringSleep < 20
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Low body battery recovery during sleep"
+            description: "Your body battery recovery during sleep was below 20. This could indicate poor sleep quality or overexertion."
+
+        # Alert: Insufficient Activity
+        - alert: InsufficientActivity
+          expr: avg_over_time(activeSeconds[3d]) < (30 * 60)  # Less than 30 minutes average activity over 3 days
+          for: 3h
+          labels:
+            severity: info
+          annotations:
+            summary: "Insufficient activity over the past 3 days"
+            description: "Your average daily activity over the past 3 days has been less than 30 minutes. Consider adding some exercise to your routine."
+        # # Alert: Poor Sleep Quality - need to put back on my other garmin
+        # - alert: PoorSleepQuality
+        #   expr: spo2DuringSleep < 90
+        #   for: 1h
+        #   labels:
+        #     severity: warning
+        #   annotations:
+        #     summary: "Low SPO2 during sleep"
+        #     description: "Your SPO2 during sleep dropped below 90%. This could indicate poor sleep quality or potential breathing issues."
+
+      # Alert: Overtraining Warning
+        - alert: OvertrainingWarning
+          expr: heartRateVariability < (avg_over_time(heartRateVariability[7d]) * 0.8)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Potential overtraining detected"
+            description: "Your HRV has dropped by more than 20% compared to the 7-day average. This could indicate overtraining or insufficient recovery."
