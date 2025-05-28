@@ -61,14 +61,13 @@ spec:
 
         # Alert: Insufficient Activity
         - alert: InsufficientActivity
-          expr: activeSeconds < (60 * 60)  # Less than 1 hour of activity
-          for: 1h
+          expr: avg_over_time(activeSeconds[3d]) < (30 * 60)  # Less than 30 minutes average activity over 3 days
+          for: 3h
           labels:
             severity: info
           annotations:
-            summary: "Insufficient activity today"
-            description: "You’ve been active for less than 1 hour today. Consider adding some exercise to your routine."
-
+            summary: "Insufficient activity over the past 3 days"
+            description: "Your average daily activity over the past 3 days has been less than 30 minutes. Consider adding some exercise to your routine."
         # # Alert: Poor Sleep Quality - need to put back on my other garmin
         # - alert: PoorSleepQuality
         #   expr: spo2DuringSleep < 90
@@ -78,16 +77,6 @@ spec:
         #   annotations:
         #     summary: "Low SPO2 during sleep"
         #     description: "Your SPO2 during sleep dropped below 90%. This could indicate poor sleep quality or potential breathing issues."
-
-        # Alert: High Stress-to-Activity Ratio
-        - alert: HighStressToActivityRatio
-          expr: (stressDuration / activeSeconds) > 0.5
-          for: 1h
-          labels:
-            severity: warning
-          annotations:
-            summary: "High stress-to-activity ratio"
-            description: "Your stress duration is more than 50% of your active time. Consider relaxation techniques or reducing stressors."
 
       # Alert: Overtraining Warning
         - alert: OvertrainingWarning

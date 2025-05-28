@@ -32,6 +32,14 @@ Set the following environment variables for the app to function:
 2. However, you won't be able to access the docker images that my GHA workflow builds. 
 3. At a later stage I might push the image to a public docker repo, but until then you'll need to find your own route to deploying it.
 
+# Architecture and Design
+* This project follows a modular, pythonic style - splitting them into easy maintable components
+* The core of the app is written in Python, using Flask to expose the required endpoints
+* It relies on a manual process to sync my watch, but there are alerts to remind me to do it.
+* Metrics are exposed on `/metrics` using the prometheus-client library - these are then scraped by prometheus using `Pod Annotations`
+* It includes Helm charts for easy deployment to my Raspberry Pi K3s cluster, including alerts
+* The backfill endpoint is affectively my way of restoring data from a backup for my garmin data. The endpoint currently only generates the backfill timeseries chunks - it does not put them into the prometheus filesystem.
+
 ## Functionality
 
 - **/metrics**: Exposes Prometheus metrics for scraping.
@@ -74,6 +82,8 @@ See `helm/templates/garmin-alerts.yaml` for some rules you can copy.
 
 - Fix the login so it works on ARM64. Right now I'm relying on a manual copy process.
 - Better refinement of my alerts
+- The backfill endpoint will automatically backfill right into prometheus, taking out the manual steps
+
 
 ## Conclusion and Learnings
 
