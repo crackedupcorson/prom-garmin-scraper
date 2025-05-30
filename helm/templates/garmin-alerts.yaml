@@ -10,13 +10,13 @@ spec:
     - name: sync-alerts
       rules:
         - alert: GarminDataStale
-          expr: (time() - (lastUploadSyncTime / 1000)) > (6 * 60 * 60)
+          expr: (time() - (lastUploadSyncTime / 1000)) > (8 * 60 * 60)
           for: 1h
           labels:
             severity: warning
           annotations:
-            summary: "Garmin data has not been synced in over 24 hours"
-            description: "Your Garmin data is stale. Please sync your watch."
+            summary: "Garmin data has not been synced in over 8 hours"
+            description: "SYNC YOUR WATCH!"
     - name: health-alerts
       rules:
         # Alert: Spike in 7-Day Resting Heart Rate
