@@ -10,7 +10,7 @@ spec:
     - name: sync-alerts
       rules:
         - alert: GarminDataStale
-          expr: (time() - lastUploadSyncTime) > (24 * 60 * 60)
+          expr: (time() - (lastUploadSyncTime / 1000)) > (6 * 60 * 60)
           for: 1h
           labels:
             severity: warning
@@ -61,7 +61,7 @@ spec:
 
         # Alert: Insufficient Activity
         - alert: InsufficientActivity
-          expr: avg_over_time(activeSeconds[3d]) < (30 * 60)  # Less than 30 minutes average activity over 3 days
+          expr: avg_over_time(activeSeconds[3d]) + avg_over_time(highlyActiveSeconds[3d]) < (30 * 60)  # Less than 30 minutes average activity over 3 days
           for: 3h
           labels:
             severity: info
