@@ -47,7 +47,7 @@ spec:
         - name: GARTH_FOLDER
           value: /opt/garmin-scraper
         - name: SLACK_CHANNEL
-          value:
+          value: C08TTAQ775M
         ports:
         - containerPort: 8080
         volumeMounts:

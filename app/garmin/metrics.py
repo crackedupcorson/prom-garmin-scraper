@@ -1,6 +1,14 @@
 from prometheus_client.core import Gauge
+from datetime import datetime 
+
 class Metrics(object):
     metrics = {}
+    WORK_START = 9
+    WORK_END = 5
+
+    def is_work_hours(self, ts: datetime):
+        return ts.weekday() < 5 and self.WORK_START <= ts.hour <= self.WORK_END
+
 
     active_metrics = [
         "sedentarySeconds|Time spent sedentary",
@@ -88,67 +96,69 @@ class Metrics(object):
                 self.metrics[name] = Gauge(name, desc)
 
     def populate_metrics(self, dailies):
+        now = datetime.now()
+        period = "work" if self.is_work_hours(now) else "off_work"
         for metrics in self.all_metrics:
             for metric in metrics:
                 key = metric.split("|")[0]
                 val = dailies.get(key)
-                if val is None:
+                if key in self.derived_metrics and  val is None:
                     print(f"Value for {key} is null")
                 if val is not None:
-                    self.metrics[key].set(val)
+                    self.metrics[key].labels(period=period).set(val)
 
         # Derived metrics
         active_seconds = dailies.get("activeSeconds", 0)
         sedentary_seconds = dailies.get("sedentarySeconds", 0)
         if active_seconds and sedentary_seconds:
             active_to_sedentary_ratio = active_seconds / sedentary_seconds
-            self.metrics["activeToSedentaryRatio"].set(active_to_sedentary_ratio)
+            self.metrics["activeToSedentaryRatio"].labels(period=period).set(active_to_sedentary_ratio)
 
         highly_active_seconds = dailies.get("highlyActiveSeconds", 0)
         if active_seconds:
             highly_active_to_active_ratio = highly_active_seconds / active_seconds
-            self.metrics["highlyActiveToActiveRatio"].set(highly_active_to_active_ratio)
+            self.metrics["highlyActiveToActiveRatio"].labels(period=period).set(highly_active_to_active_ratio)
 
         max_heart_rate = dailies.get("maxHeartRate", 0)
         min_heart_rate = dailies.get("minHeartRate", 0)
         if max_heart_rate and min_heart_rate:
             heart_rate_range = max_heart_rate - min_heart_rate
-            self.metrics["heartRateRange"].set(heart_rate_range)
+            self.metrics["heartRateRange"].labels(period=period).set(heart_rate_range)
 
         resting_heart_rate = dailies.get("restingHeartRate", 0)
         if max_heart_rate and resting_heart_rate:
             resting_to_max_heart_rate_ratio = resting_heart_rate / max_heart_rate
-            self.metrics["restingToMaxHeartRateRatio"].set(resting_to_max_heart_rate_ratio)
+            self.metrics["restingToMaxHeartRateRatio"].labels(period=period).set(resting_to_max_heart_rate_ratio)
 
         stress_duration = dailies.get("stressDuration", 0)
         if active_seconds:
             stress_to_active_ratio = stress_duration / active_seconds
-            self.metrics["stressToActiveRatio"].set(stress_to_active_ratio)
+            self.metrics["stressToActiveRatio"].labels(period=period).set(stress_to_active_ratio)
 
         rest_stress_duration = dailies.get("restStressDuration", 0)
         if sedentary_seconds:
             stress_to_rest_ratio = rest_stress_duration / sedentary_seconds
-            self.metrics["stressToRestRatio"].set(stress_to_rest_ratio)
+            self.metrics["stressToRestRatio"].labels(period=period).set(stress_to_rest_ratio)
 
         body_battery_high = dailies.get("bodyBatteryHighestValue", 0)
         body_battery_low = dailies.get("bodyBatteryLowestValue", 0)
         if body_battery_high and body_battery_low:
             body_battery_recovery = body_battery_high - body_battery_low
-            self.metrics["bodyBatteryRecovery"].set(body_battery_recovery)
+            self.metrics["bodyBatteryRecovery"].labels(period=period).set(body_battery_recovery)
 
         average_spo2 = dailies.get("averageSpo2", 0)
         spo2_during_sleep = dailies.get("spo2DuringSleep", 0)
         if average_spo2 and spo2_during_sleep:
             spo2_drop_during_sleep = average_spo2 - spo2_during_sleep
-            self.metrics["spo2DropDuringSleep"].set(spo2_drop_during_sleep)
+            self.metrics["spo2DropDuringSleep"].labels(period=period).set(spo2_drop_during_sleep)
 
         total_steps = dailies.get("totalSteps", 0)
         total_distance_meters = dailies.get("totalDistanceMeters", 0)
         if total_steps and total_distance_meters:
             steps_to_distance_ratio = total_steps / total_distance_meters
-            self.metrics["stepsToDistanceRatio"].set(steps_to_distance_ratio)
+            self.metrics["stepsToDistanceRatio"].period(period=period).set(steps_to_distance_ratio)
 
         active_kilocalories = dailies.get("activeKilocalories", 0)
         if total_steps:
             calories_per_step = active_kilocalories / total_steps
-            self.metrics["caloriesPerStep"].set(calories_per_step)
+            self.metrics["caloriesPerStep"].labels(period=period).set(calories_per_step)
