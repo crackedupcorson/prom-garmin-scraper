@@ -39,15 +39,17 @@ class TestMetrics(unittest.TestCase):
 
         # Replace metrics with mocked gauges
         for key in self.metrics.metrics:
-            self.metrics.metrics[key] = MagicMock()
+            metric_mock = MagicMock()
+            metric_mock.labels.return_value = metric_mock
+            self.metrics.metrics[key] = metric_mock
 
         self.metrics.populate_metrics(dailies)
 
         # Verify all metrics are populated with correct values
         for key, val in dailies.items():
             if val is not None and key in self.metrics.metrics:
+                print(key)
                 self.metrics.metrics[key].set.assert_called_with(val)
-
 
 if __name__ == "__main__":
     unittest.main()
