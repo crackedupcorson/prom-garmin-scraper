@@ -93,7 +93,7 @@ class Metrics(object):
             for metric in metrics:
                 name = metric.split("|")[0]
                 desc = metric.split("|")[1]
-                self.metrics[name] = Gauge(name, desc)
+                self.metrics[name] = Gauge(name, desc, ["period"])
 
     def populate_metrics(self, dailies):
         now = datetime.now()
@@ -156,7 +156,7 @@ class Metrics(object):
         total_distance_meters = dailies.get("totalDistanceMeters", 0)
         if total_steps and total_distance_meters:
             steps_to_distance_ratio = total_steps / total_distance_meters
-            self.metrics["stepsToDistanceRatio"].period(period=period).set(steps_to_distance_ratio)
+            self.metrics["stepsToDistanceRatio"].labels(period=period).set(steps_to_distance_ratio)
 
         active_kilocalories = dailies.get("activeKilocalories", 0)
         if total_steps:
