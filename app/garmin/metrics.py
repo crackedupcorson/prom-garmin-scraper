@@ -4,10 +4,10 @@ from datetime import datetime
 class Metrics(object):
     metrics = {}
     WORK_START = 9
-    WORK_END = 5
+    WORK_END = 6
 
     def is_work_hours(self, ts: datetime):
-        return ts.weekday() < 5 and self.WORK_START <= ts.hour <= self.WORK_END
+        return ts.weekday() < 5 and self.WORK_START >= ts.hour < self.WORK_END
 
 
     active_metrics = [
