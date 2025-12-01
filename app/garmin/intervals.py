@@ -117,6 +117,8 @@ class Intervals:
                 metrics = self.compute_rough_guess_bike_metrics(df, self.ftp, metadata)
         if activity_type == "Run":
             print("Not yet implemented")
+        metrics["type"]=metadata["type"]
+        metrics["date"]=metadata["activity_date"]
         return metrics
         
     def compute_bike_metrics(self, df, ftp):
