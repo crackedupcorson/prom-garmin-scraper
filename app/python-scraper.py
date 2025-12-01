@@ -10,6 +10,9 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from garmin.metrics import Metrics
 from garmin.scrape import Scrape
 from garmin.tsdb import TsdbGenerator
+from garmin.intervals import Intervals
+import garmin.utils as utils
+import json
 
 app = Flask(__name__)
 app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
@@ -38,6 +41,31 @@ def generate_backfill():
     tsdb.create_backfill(backfill)
     return f"Successfully found records for {len(backfill)} days"
 
+
+@app.route('/activity')
+def get_activity_stream():
+    intervals = Intervals()
+    activity_id = request.args.get('id')
+    file_path, metadata = intervals.get_activity_streams(activity_id)
+    metrics = intervals.parse_activity(file_path, metadata)
+    resp = json.dumps(metrics, indent=4, default=utils.convert)
+    print(resp)
+    return resp
+
+@app.route('/new-activities')
+def check_for_activities():
+    intervals = Intervals()
+    new_activity = intervals.found_new_activity()
+    if new_activity:
+        activity_id = intervals.get_latest_activity()
+        file_path = intervals.get_activity_streams(activity_id)
+        metrics = intervals.parse_activity(file_path)
+        resp = json.dumps(metrics, indent=4, default=utils.convert)
+        print(resp)
+        return resp
+    else:
+        return "No new activities found"
+   
 def register_prom_metrics():
     metrics.collect()
 
