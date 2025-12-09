@@ -3,6 +3,6 @@ waitress===3.0.2
 garth===0.5.2
 prometheus-client===0.21.0
 slack_bolt===1.20.1
-pytest===6.2.2
-coverage===6.3.1
+pytest===7.4.3
+coverage===7.3.2
 pandas==2.3.0
