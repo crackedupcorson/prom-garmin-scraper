@@ -48,6 +48,13 @@ spec:
           value: /opt/garmin-scraper
         - name: SLACK_CHANNEL
           value: C08TTAQ775M
+        - name: INTERVALS_BASE_URL
+          value: https://intervals.icu
+        - name: INTERVALS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: garmin-secret
+              key: INTERVALS_API_KEY
         ports:
         - containerPort: 8080
         volumeMounts:

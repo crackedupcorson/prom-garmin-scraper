@@ -32,7 +32,7 @@ def get_dailies():
     return dailies
 
 
-@app.route('/backfill')
+@app.route('/garmin/backfill')
 def generate_backfill():
     scrape = Scrape()
     tsdb = TsdbGenerator()
@@ -42,29 +42,33 @@ def generate_backfill():
     return f"Successfully found records for {len(backfill)} days"
 
 
-@app.route('/activity')
+@app.route('/intervals/activity')
 def get_activity_stream():
     intervals = Intervals()
     activity_id = request.args.get('id')
     file_path, metadata = intervals.get_activity_streams(activity_id)
     metrics = intervals.parse_activity(file_path, metadata)
     resp = json.dumps(metrics, indent=4, default=utils.convert)
-    print(resp)
     return resp
 
-@app.route('/new-activities')
-def check_for_activities():
+@app.route('/intervals/activities')
+def get_activities():
+    weeks =  request.args.get('weeks', default="6")
     intervals = Intervals()
-    new_activity = intervals.found_new_activity()
-    if new_activity:
-        activity_id = intervals.get_latest_activity()
-        file_path = intervals.get_activity_streams(activity_id)
-        metrics = intervals.parse_activity(file_path)
-        resp = json.dumps(metrics, indent=4, default=utils.convert)
-        print(resp)
-        return resp
-    else:
-        return "No new activities found"
+    activities = intervals.get_activities_in_last_x_weeks(int(weeks))
+    ids = intervals.get_activity_ids(activities)
+    all_metrics = []
+    for activity_id in ids:
+        try:
+            file_path, metadata = intervals.get_activity_streams(activity_id)
+            if metadata["type"] == "Walk":
+                continue
+            activity_metrics = intervals.parse_activity(file_path, metadata)
+            all_metrics.append(activity_metrics)
+        except Exception as e:
+            print(f"Caught exception {e} loading activity {activity_id}, skipping")
+    result = json.dumps(all_metrics)
+    return result
    
 def register_prom_metrics():
     metrics.collect()
