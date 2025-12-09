@@ -1,5 +1,5 @@
 import os
-from app.garmin import utils
+import garmin.utils as utils
 import pandas as pd
 from datetime import datetime, timedelta
 import csv,json
