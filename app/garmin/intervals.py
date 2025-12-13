@@ -20,7 +20,6 @@ class Intervals:
         api_key_bytes = base64.b64decode(os.environ.get("INTERVALS_API_KEY"))
         try:
             decoded_string = api_key_bytes.decode('utf-8')
-            decoded_string = decoded_string.replace("\n", "")
             return decoded_string
         except UnicodeDecodeError:
             print("Decoded data is binary, not UTF-8 text.")
