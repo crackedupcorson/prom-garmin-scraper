@@ -11,18 +11,12 @@ class Intervals:
         self.slack_channel = os.environ.get("SLACK_CHANNEL")
         self.slack_user_id = os.environ.get("SLACK_USER_ID")
         self.slack_auth_token = os.environ.get("SLACK_BOT_TOKEN")
-        self.intervals_api_key = self.get_api_key()
+        self.intervals_api_key = os.environ.get("INTERVALS_API_KEY")
         self.intervals_base = os.environ.get("INTERVALS_BASE_URL")
         self.garth_folder = os.environ.get("GARTH_FOLDER")
         self.ftp = 218
         self.get_athlete_fields()
-    def get_api_key(self):
-        api_key_bytes = base64.b64decode(os.environ.get("INTERVALS_API_KEY"))
-        try:
-            decoded_string = api_key_bytes.decode('utf-8')
-            return decoded_string
-        except UnicodeDecodeError:
-            print("Decoded data is binary, not UTF-8 text.")
+
     def get_athlete_fields(self):
         endpoint = "/api/v1/athlete/0"
         url = self.intervals_base + endpoint
