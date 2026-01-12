@@ -26,11 +26,14 @@ Set the following environment variables for the app to function:
 - `SLACK_CHANNEL`: (Optional) Slack channel for sync alerts
 - `SLACK_USER_ID`: (Optional) Slack user ID for notifications
 - `SLACK_BOT_TOKEN`: (Optional) Slack bot token for sending messages
+ - `INTERVALS_API_KEY`: (Optional) API key for intervals.icu (used to fetch activity streams and metadata).
+ - `INTERVALS_BASE_URL`: (Optional) Base URL for the Intervals API (default used in Helm: `https://intervals.icu`).
 
 ### Installation
-1. Right now this is a public repo, so you can clone it and build it and run it locally.
-2. However, you won't be able to access the docker images that my GHA workflow builds. 
-3. At a later stage I might push the image to a public docker repo, but until then you'll need to find your own route to deploying it.
+* This application currently runs as a containerized application
+* It is installed with Helm on a local Kubernetes cluster
+
+
 
 # Architecture and Design
 * This project follows a modular, pythonic style - splitting them into easy maintable components
@@ -46,6 +49,8 @@ Set the following environment variables for the app to function:
 - **/daily**: Triggers a daily data scrape from Garmin and updates metrics. I'm triggering this as a raw cronjob on my Raspberr Pi. At a later date I may change the endpoint to run on a schedule.
 - **/backfill?days=N**: Backfills historical data for the past N days and generates TSDB-compatible files. You'll then need to pass that to a folder where prometheus can ingest it to. Beware, the metric names can lead to different metrics appearing for the same name.
 
+- **Intervals parsing**: New functionality lets the app query an Intervals-style API (intervals.icu or compatible) to fetch activity streams and produce per-activity summary metrics (power, zones, TSS, HR drift, cadence, pace zones, training load, etc.).
+
 Metrics include heart rate, stress, activity, body battery, sleep, and derived metrics for richer analysis.
 
 ### Endpoints
@@ -53,6 +58,16 @@ Metrics include heart rate, stress, activity, body battery, sleep, and derived m
 - `GET /metrics`: Prometheus metrics endpoint.
 - `GET /daily`: Fetches and exposes the latest daily Garmin data.
 - `GET /backfill?days=N`: Backfills and processes N days of historical data.
+- `GET /intervals/activity?id=<activity_id>`: Fetches the activity stream for the given activity id from the Intervals API and returns parsed JSON metrics for that activity.
+- `GET /intervals/activities?weeks=<N>`: Fetches activities from the last N weeks, downloads their streams and returns an array of parsed activity metrics (skips `Walk` activities).
+
+**Intervals API (summary)**
+
+- **Supported activity types**: `Ride` (and `VirtualRide`), `Run`, `WeightTraining`. `Walk` is currently not processed.
+- **How it works**: The service reads `INTERVALS_API_KEY` and `INTERVALS_BASE_URL`, pulls athlete info (to detect FTP), lists activities, downloads activity streams (`streams.csv`) and metadata, then computes time-weighted and estimated metrics per activity.
+- **Key metrics produced (examples)**: `avg_power`, `normalized_power`, `intensity_factor`, `tss`, `zone_times`, `zone_percentages`, `hr_drift`, `segment_times`, `segment_percentages`, `total_time`, `avg_heartrate`, `max_heartrate`, `avg_velocity`, `pace_zone_times`, `training_load`, and an `estimate_method` describing how the values were derived.
+- **Storage / files**: Streams are temporarily written to `GARTH_FOLDER/activity.csv` for parsing; a CSV of available activities is cached to `GARTH_FOLDER/activities.csv` for simple change-detection.
+
 
 ### Dashboards
 
