@@ -1,0 +1,15 @@
+name: Delete Old Packages
+
+on: workflow_dispatch
+
+jobs:
+  delete-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Old Packages
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: prom-garmin-scraper
+          package-type: container 
+          num-old-versions-to-delete: 10
+          token: ${{ secrets.GH_PAT }}
