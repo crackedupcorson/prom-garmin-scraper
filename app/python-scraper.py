@@ -11,6 +11,7 @@ from garmin.metrics import Metrics
 from garmin.scrape import Scrape
 from garmin.tsdb import TsdbGenerator
 from garmin.intervals import Intervals
+from garmin.fatigue import FatigueChecker
 import garmin.utils as utils
 import json
 
@@ -23,7 +24,7 @@ prometheus_client.REGISTRY.unregister(prometheus_client.GC_COLLECTOR)
 prometheus_client.REGISTRY.unregister(prometheus_client.PLATFORM_COLLECTOR)
 prometheus_client.REGISTRY.unregister(prometheus_client.PROCESS_COLLECTOR)
 metrics = Metrics()
-@app.route('/daily')
+@app.route('/garmin/daily')
 def get_dailies():
     scrape = Scrape()
     dailies = scrape.get_daily_data()
@@ -69,6 +70,54 @@ def get_activities():
             print(f"Caught exception {e} loading activity {activity_id}, skipping")
     result = json.dumps(all_metrics)
     return result
+
+
+@app.route('/fatigue/diag', methods=['POST'])
+def fatigue_diag():
+        """Diagnostic endpoint for the fatigue primitives.
+
+        Accepts JSON body:
+            {
+                "rides": [ { ... } ],   # optional list of historical rides
+                "ride": { ... }        # optional single ride to evaluate
+            }
+
+        Returns JSON with `history` gating, `baseline` stats per IF band,
+        and per-sample strain / comparison outputs (pure diagnostics).
+        """
+        data = request.get_json(silent=True) or {}
+        rides = data.get('rides', [])
+        sample = data.get('ride')
+        # Optionally accept an Intervals activity id and fetch/parse it here
+        activity_id = request.args.get('activity_id') or data.get('activity_id')
+        if activity_id and sample is None:
+            try:
+                intervals = Intervals()
+                file_path, metadata = intervals.get_activity_streams(activity_id)
+                sample = intervals.parse_activity(file_path, metadata)
+            except Exception as e:
+                sample = None
+                print(f"Failed to load activity {activity_id}: {e}")
+        fc = FatigueChecker()
+        history = fc.history_gating(rides)
+        baseline = fc.build_baseline_statistics(rides) if rides else {}
+        sample_metrics = None
+        is_easy = None
+        is_easy_reasons = None
+        sample_comparison = None
+        if sample:
+                sample_metrics = fc.compute_per_ride_strain(sample)
+                is_easy, is_easy_reasons = fc.is_easy_ride(sample)
+                sample_comparison = fc.compare_ride_to_baseline(sample, baseline)
+        resp = {
+                'history': history,
+                'baseline': baseline,
+                'sample_metrics': sample_metrics,
+                'is_easy': is_easy,
+                'is_easy_reasons': is_easy_reasons,
+                'sample_comparison': sample_comparison,
+        }
+        return json.dumps(resp, indent=2, default=utils.convert)
    
 def register_prom_metrics():
     metrics.collect()

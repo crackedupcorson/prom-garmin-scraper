@@ -56,8 +56,8 @@ Metrics include heart rate, stress, activity, body battery, sleep, and derived m
 ### Endpoints
 
 - `GET /metrics`: Prometheus metrics endpoint.
-- `GET /daily`: Fetches and exposes the latest daily Garmin data.
-- `GET /backfill?days=N`: Backfills and processes N days of historical data.
+- `GET /garmin/daily`: Fetches and exposes the latest daily Garmin data.
+- `GET /garmin/backfill?days=N`: Backfills and processes N days of historical data.
 - `GET /intervals/activity?id=<activity_id>`: Fetches the activity stream for the given activity id from the Intervals API and returns parsed JSON metrics for that activity.
 - `GET /intervals/activities?weeks=<N>`: Fetches activities from the last N weeks, downloads their streams and returns an array of parsed activity metrics (skips `Walk` activities).
 
