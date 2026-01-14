@@ -78,6 +78,9 @@ class Metrics(object):
         "stepsToDistanceRatio|Ratio of total steps to total distance traveled",
         "caloriesPerStep|Active calories burned per step"
     ]
+    intervals_metrics = [
+        
+    ]
 
     all_metrics = []
 

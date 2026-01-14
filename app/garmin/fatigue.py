@@ -69,14 +69,20 @@ class FatigueChecker:
     def assign_if_band(self, intensity_factor: float) -> str:
         """Assign a simple IF band label for a given IF value (pure function).
 
-        Returns band label or empty string if none match.
+        Returns band label, "ignored_for_strain" if IF is out of easy-ride bands,
+        or empty string if IF is None.
+
+        High-IF rides (>= 0.65) are explicitly excluded from strain baselines.
+        They still contribute to training load context (task 10) but do NOT
+        influence easy-ride fatigue interpretation. This is by design, not a bug.
         """
         if intensity_factor is None:
             return ""
         for low, high, label in self.if_bands:
             if intensity_factor >= low and intensity_factor < high:
                 return label
-        return ""
+        # Out-of-band rides (usually high-IF) are explicitly ignored for strain
+        return "ignored_for_strain"
 
     def is_easy_ride(self, ride: Dict[str, Any]) -> Tuple[bool, List[str]]:
         """Detect whether a ride satisfies the easy-ride eligibility (task 4).
@@ -159,6 +165,9 @@ class FatigueChecker:
         """Compute core per-ride strain metrics (task 5).
 
         Pure data extractor / aggregator. No thresholds or interpretations.
+        
+        Returns a dict with strain metrics plus a "strain_applicable" flag
+        indicating whether this ride can contribute to fatigue interpretation.
         """
         out: Dict[str, Any] = {}
 
@@ -192,6 +201,12 @@ class FatigueChecker:
 
         out["tss"] = None if ride.get("tss") is None else float(ride.get("tss"))
 
+        # Explicit marker: is this ride eligible for strain/fatigue interpretation?
+        # Applies only to easy rides (IF < 0.65, meets duration/zone criteria).
+        # High-IF rides still count toward training load but are excluded from strain.
+        is_easy, _ = self.is_easy_ride(ride)
+        out["strain_applicable"] = is_easy
+
         return out
 
     def build_baseline_statistics(self, rides: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -199,6 +214,9 @@ class FatigueChecker:
 
         Returns mapping band_label -> {metric: {mean, stdev, count}}.
         Pure aggregation only.
+
+        Note: Rides with band="ignored_for_strain" are explicitly excluded.
+        High-IF efforts do not contribute to easy-ride baselines.
         """
         import statistics
 
@@ -206,7 +224,7 @@ class FatigueChecker:
         for r in rides:
             if_val = r.get("intensity_factor") or r.get("IF")
             band_label = self.assign_if_band(if_val)
-            if not band_label:
+            if not band_label or band_label == "ignored_for_strain":
                 continue
             bands.setdefault(band_label, []).append(r)
 
@@ -272,6 +290,153 @@ class FatigueChecker:
         out["band"] = band_label
         out["comparison"] = comp
         return out
+
+    def rolling_window_gating(self, rides: List[Dict[str, Any]], window_days: int = 7) -> Dict[str, Any]:
+        """Check rolling window eligibility (task 9).
+
+        Returns gating status for a window. Rules:
+        - >= 2 eligible easy rides in window
+        - >= 5 total rides in window
+        - No gap > 3 days with zero riding
+
+        Returns dict with `eligible: bool` and `reasons` list.
+        """
+        import datetime as dt
+
+        reasons: List[str] = []
+
+        if not rides:
+            reasons.append("no_rides_in_window")
+            return {"eligible": False, "reasons": reasons}
+
+        # Parse dates
+        try:
+            dates = [dt.datetime.strptime(r.get("date"), "%Y-%m-%d").date() for r in rides if r.get("date")]
+        except Exception:
+            reasons.append("bad_date_format")
+            return {"eligible": False, "reasons": reasons}
+
+        if not dates:
+            reasons.append("no_valid_dates")
+            return {"eligible": False, "reasons": reasons}
+
+        sorted_dates = sorted(set(dates))
+        
+        # Check for gaps > 3 days
+        for i in range(len(sorted_dates) - 1):
+            gap = (sorted_dates[i + 1] - sorted_dates[i]).days
+            if gap > 3:
+                reasons.append(f"gap_of_{gap}_days")
+
+        # Count total rides
+        total_rides = len(rides)
+        if total_rides < 5:
+            reasons.append(f"only_{total_rides}_rides")
+
+        # Count easy rides (strain_applicable = true)
+        easy_count = sum(1 for r in rides if self.compute_per_ride_strain(r).get("strain_applicable"))
+        if easy_count < 2:
+            reasons.append(f"only_{easy_count}_easy_rides")
+
+        eligible = len(reasons) == 0
+        return {"eligible": eligible, "reasons": reasons, "total_rides": total_rides, "easy_rides": easy_count}
+
+    def training_load_context(self, rides: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Check training load context (task 10).
+
+        Ensures TSS values are reliable and not skewed by single outliers.
+
+        Returns dict with `reliable: bool`, `reasons`, and `tss_stats`.
+        """
+        reasons: List[str] = []
+        tss_values = [r.get("tss") for r in rides if r.get("tss") is not None]
+
+        if len(tss_values) < 3:
+            reasons.append(f"only_{len(tss_values)}_rides_with_tss")
+            return {"reliable": False, "reasons": reasons, "tss_stats": {}}
+
+        total_tss = sum(tss_values)
+        max_tss = max(tss_values)
+        max_pct = (max_tss / total_tss * 100.0) if total_tss > 0 else 0.0
+
+        if max_pct > 60.0:
+            reasons.append(f"single_ride_is_{max_pct:.1f}pct_of_weekly")
+
+        reliable = len(reasons) == 0
+        return {
+            "reliable": reliable,
+            "reasons": reasons,
+            "tss_stats": {
+                "total": float(total_tss),
+                "count": len(tss_values),
+                "max": float(max_tss),
+                "max_percent": float(max_pct),
+            },
+        }
+
+    def aggregate_7day_classification(self, rides: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Aggregate 7-day classifications (task 8).
+
+        Produces a conservative label for the 7-day window.
+        Returns classification with reasoning (never interprets causality).
+        """
+        # Pre-check: gating and load context
+        gating = self.rolling_window_gating(rides)
+        load_ctx = self.training_load_context(rides)
+
+        result: Dict[str, Any] = {
+            "classification": "neutral_noisy",
+            "reasons": [],
+            "gating": gating,
+            "load_context": load_ctx,
+        }
+
+        if not gating["eligible"]:
+            result["reasons"].extend(gating["reasons"])
+            return result
+
+        if not load_ctx["reliable"]:
+            result["reasons"].extend(load_ctx["reasons"])
+            return result
+
+        # Baseline: build from all rides
+        baseline = self.build_baseline_statistics(rides)
+        if not baseline:
+            result["reasons"].append("no_eligible_bands_in_baseline")
+            return result
+
+        # Count strain flags in easy rides
+        easy_rides = [r for r in rides if self.compute_per_ride_strain(r).get("strain_applicable")]
+        if not easy_rides:
+            result["reasons"].append("no_easy_rides_to_evaluate")
+            return result
+
+        strain_flags = []
+        for ride in easy_rides:
+            comp = self.compare_ride_to_baseline(ride, baseline)
+            if comp.get("comparison"):
+                # Flag if any metric is elevated (zscore > 1.0)
+                for metric, vals in comp["comparison"].items():
+                    z = vals.get("zscore")
+                    if z is not None and z > 1.0:
+                        strain_flags.append({"ride_date": ride.get("date"), "metric": metric, "zscore": z})
+
+        flagged_rides = len(set(sf["ride_date"] for sf in strain_flags))
+
+        # Conservative classification rules
+        if flagged_rides >= 3:
+            result["classification"] = "fatigue_accumulating"
+            result["reasons"].append(f"{flagged_rides}_of_{len(easy_rides)}_easy_rides_elevated")
+        elif flagged_rides >= 2:
+            result["classification"] = "non_training_fatigue_likely"
+            result["reasons"].append(f"{flagged_rides}_rides_show_strain_pattern")
+        elif flagged_rides >= 1:
+            result["reasons"].append(f"{flagged_rides}_ride_elevated_strain")
+        else:
+            result["reasons"].append("no_elevated_strain_detected")
+
+        result["strain_flags"] = strain_flags
+        return result
 
 
 __all__ = ["FatigueChecker"]
