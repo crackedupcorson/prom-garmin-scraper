@@ -49,6 +49,7 @@ def get_activity_stream():
     activity_id = request.args.get('id')
     file_path, metadata = intervals.get_activity_streams(activity_id)
     metrics = intervals.parse_activity(file_path, metadata)
+    utils.save_activity_to_file(intervals.activites_file_path, activity_id, metadata["activity_date"] ,  metadata["type"])
     resp = json.dumps(metrics, indent=4, default=utils.convert)
     return resp
 
@@ -65,6 +66,7 @@ def get_activities():
             if metadata["type"] == "Walk":
                 continue
             activity_metrics = intervals.parse_activity(file_path, metadata)
+            utils.save_activity_to_file(intervals.activities_file_path, activity_id, metadata["activity_date"] ,  metadata["type"])
             all_metrics.append(activity_metrics)
         except Exception as e:
             print(f"Caught exception {e} loading activity {activity_id}, skipping")

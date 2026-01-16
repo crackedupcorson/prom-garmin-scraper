@@ -45,3 +45,18 @@ def make_request(method, url, api_key, params=None, json=None, headers=None):
         print(f"Can't process request for {url}")
         raise Exception("Could not process request")
     return res
+
+def save_activity_to_file(activities_file, activity_id, activity_date, activity_type):
+    activities = []
+    file = open(activities_file, 'a+')
+    for line in file:
+        line = line.split("|")
+        activities.append(line[0])
+    
+    if activity_id not in activities:
+        line = f"{activity_id}|{activity_date}|{activity_type}"
+        file.write(line)
+    file.close()
+
+
+

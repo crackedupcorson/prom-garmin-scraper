@@ -14,6 +14,7 @@ class Intervals:
         self.intervals_api_key = os.environ.get("INTERVALS_API_KEY")
         self.intervals_base = os.environ.get("INTERVALS_BASE_URL")
         self.garth_folder = os.environ.get("GARTH_FOLDER")
+        self.activities_file_path =  self.garth_folder + os.sep + "activities.csv"
         self.ftp = 218
         self.get_athlete_fields()
 
@@ -42,22 +43,21 @@ class Intervals:
     def found_new_activity(self):
         new_activity = False
         activities = self.get_activities()
-        filepath = self.garth_folder + os.sep + "activities.csv"
         try: 
             activities = activities.decode('utf-8')
         except UnicodeDecodeError:
             print("utf-8-sig encoding")
             activities = activities.decode('utf-8-sig')
-        if not os.path.isfile(filepath):
-             with open(filepath, 'w') as f:
+        if not os.path.isfile(self.activities_file_path):
+             with open(self.activities_file_path, 'w') as f:
                 f.write(activities)
-        if os.path.isfile(filepath):
-            existing_row_count = sum(1 for line in open(filepath))
+        if os.path.isfile(self.activities_file_path):
+            existing_row_count = sum(1 for line in open(self.activities_file_path))
             reader = csv.reader(activities.splitlines())
             new_row_count = sum(1 for _ in reader)
             if new_row_count > existing_row_count:
                 new_activity = True
-                with open(filepath, 'w') as f:
+                with open(self.activities_file_path, 'w') as f:
                     try:
                         f.write(activities)
                     except UnicodeDecodeError:
