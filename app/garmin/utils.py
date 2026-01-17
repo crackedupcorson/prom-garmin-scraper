@@ -54,7 +54,7 @@ def save_activity_to_file(activities_file, activity_id, activity_date, activity_
         activities.append(line[0])
     
     if activity_id not in activities:
-        line = f"{activity_id}|{activity_date}|{activity_type}"
+        line = f"{activity_id}|{activity_date}|{activity_type}\n"
         file.write(line)
     file.close()
 

@@ -171,8 +171,17 @@ class FatigueChecker:
         """
         out: Dict[str, Any] = {}
 
-        out["avg_heartrate"] = None if ride.get("avg_heartrate") is None else float(ride.get("avg_heartrate"))
-        out["max_heartrate"] = None if ride.get("max_heartrate") is None else float(ride.get("max_heartrate"))
+        # Try primary keys first, then fallback to ICU metadata keys
+        avg_hr = ride.get("avg_heartrate")
+        if avg_hr is None:
+            avg_hr = ride.get("average_heartrate")
+        out["avg_heartrate"] = None if avg_hr is None else float(avg_hr)
+
+        max_hr = ride.get("max_heartrate")
+        if max_hr is None:
+            max_hr = ride.get("max_heartrate")  # Fallback to same key if available
+        out["max_heartrate"] = None if max_hr is None else float(max_hr)
+
         out["hr_drift"] = None if ride.get("hr_drift") is None else float(ride.get("hr_drift"))
 
         out["avg_power"] = None if ride.get("avg_power") is None else float(ride.get("avg_power"))
@@ -437,6 +446,93 @@ class FatigueChecker:
 
         result["strain_flags"] = strain_flags
         return result
+
+    def text_summary(self, classification: Dict[str, Any], baseline: Dict[str, Any], rides: List[Dict[str, Any]]) -> str:
+        """Generate plain-English summary of fatigue status (task 12).
+
+        Returns a conservative, non-prescriptive summary suitable for an athlete.
+        Never claims causality; only describes patterns and gating status.
+        """
+        if not classification:
+            return "Insufficient data to interpret fatigue status."
+
+        lines = []
+        class_label = classification.get("classification", "neutral_noisy")
+        gating = classification.get("gating", {})
+        load_ctx = classification.get("load_context", {})
+
+        # Header
+        lines.append("=== FATIGUE STATUS SUMMARY ===")
+        lines.append("")
+
+        # Gating status
+        if not gating.get("eligible"):
+            lines.append("⚠️  INSUFFICIENT DATA FOR INTERPRETATION")
+            reasons = gating.get("reasons", [])
+            if reasons:
+                lines.append(f"Gating failures: {', '.join(reasons)}")
+            lines.append("")
+            lines.append("Once the rolling window stabilizes (no >3-day gaps), strain patterns will be analyzed.")
+            return "\n".join(lines)
+
+        # Load context
+        if not load_ctx.get("reliable"):
+            lines.append("⚠️  TRAINING LOAD SKEWED")
+            reasons = load_ctx.get("reasons", [])
+            if reasons:
+                lines.append(f"Load issues: {', '.join(reasons)}")
+            lines.append("")
+            lines.append("Classification is muted due to unreliable TSS distribution.")
+            return "\n".join(lines)
+
+        # Classification output (plain English, no jargon)
+        if class_label == "absorbing_well":
+            lines.append("✅ ABSORBING WELL")
+            lines.append("Easy rides show normal strain patterns relative to baseline.")
+            lines.append("Recovery appears adequate. No fatigue mismatch detected.")
+        elif class_label == "neutral_noisy":
+            lines.append("📊 NEUTRAL (NOISY)")
+            lines.append("No clear pattern of elevated strain in easy rides.")
+            lines.append("Data is sufficient but strain signals are inconsistent.")
+        elif class_label == "non_training_fatigue_likely":
+            lines.append("⚠️  POSSIBLE NON-TRAINING FATIGUE")
+            lines.append("Multiple easy rides show elevated strain (HR, cardiac cost) relative to baseline.")
+            lines.append("This pattern is consistent with external stress (work, illness, sleep, etc.)")
+            lines.append("not training load. Consider recovery and non-training factors.")
+        elif class_label == "fatigue_accumulating":
+            lines.append("⚠️  FATIGUE ACCUMULATING")
+            lines.append("≥3 easy rides in the window show elevated strain markers.")
+            lines.append("Physiological strain is elevated relative to training load.")
+            lines.append("Consider additional rest or reduced intensity on upcoming easy rides.")
+
+        lines.append("")
+
+        # Baseline context
+        total_rides = gating.get("total_rides", 0)
+        easy_rides = gating.get("easy_rides", 0)
+        lines.append(f"📈 CONTEXT: {total_rides} total rides ({easy_rides} easy rides) over 7 days")
+
+        tss_stats = load_ctx.get("tss_stats", {})
+        tss_total = tss_stats.get("total", 0)
+        lines.append(f"   Total TSS: {tss_total:.0f} | Max ride: {tss_stats.get('max_percent', 0):.1f}% of weekly")
+
+        # Baseline HR/cardiac cost
+        if_50_60 = baseline.get("IF_50_60", {})
+        hr_50_60 = if_50_60.get("avg_heartrate", {}).get("mean")
+        if hr_50_60:
+            lines.append(f"   IF 0.50–0.60 baseline: {hr_50_60:.0f} bpm (n={if_50_60.get('avg_heartrate', {}).get('count')})")
+
+        if_60_65 = baseline.get("IF_60_65", {})
+        hr_60_65 = if_60_65.get("avg_heartrate", {}).get("mean")
+        if hr_60_65:
+            lines.append(f"   IF 0.60–0.65 baseline: {hr_60_65:.0f} bpm (n={if_60_65.get('avg_heartrate', {}).get('count')})")
+
+        lines.append("")
+        lines.append("NOTE: This system detects strain mismatch during easy riding only.")
+        lines.append("High-intensity efforts are expected to show elevated strain (by design).")
+        lines.append("This is a warning and interpretation layer, not a decision engine.")
+
+        return "\n".join(lines)
 
 
 __all__ = ["FatigueChecker"]

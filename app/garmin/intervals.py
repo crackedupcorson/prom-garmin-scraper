@@ -138,6 +138,9 @@ class Intervals:
             metrics["status"]="Not Implemented"
         metrics["type"]=metadata["type"]
         metrics["date"]=metadata["activity_date"]
+        metrics["average_heartrate"]=metadata["average_heartrate"]
+        metrics["max_heartrate"]=metadata["max_heartrate"]
+        metrics["icu_hr_zone_times"] = metadata["icu_hr_zone_times"]
         return metrics
         
     def compute_bike_metrics(self, df, ftp):

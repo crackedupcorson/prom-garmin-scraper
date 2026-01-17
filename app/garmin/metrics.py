@@ -82,6 +82,24 @@ class Metrics(object):
         
     ]
 
+    fatigue_metrics = [
+        "fatigue_history_sufficient|Whether 21+ days of history is available (1=yes, 0=no)",
+        "fatigue_window_eligible|Whether rolling window meets gating criteria (1=yes, 0=no)",
+        "fatigue_load_context_reliable|Whether TSS distribution is reliable (1=yes, 0=no)",
+        "fatigue_classification_neutral_noisy|Classification is neutral_noisy (1=yes, 0=no)",
+        "fatigue_classification_absorbing_well|Classification is absorbing_well (1=yes, 0=no)",
+        "fatigue_classification_non_training_fatigue|Classification is non_training_fatigue_likely (1=yes, 0=no)",
+        "fatigue_classification_fatigue_accumulating|Classification is fatigue_accumulating (1=yes, 0=no)",
+        "fatigue_baseline_if_50_60_hr_mean|Baseline avg HR for IF 0.50-0.60 band (bpm)",
+        "fatigue_baseline_if_50_60_cardiac_cost_mean|Baseline cardiac cost for IF 0.50-0.60 band (bpm/watt)",
+        "fatigue_baseline_if_60_65_hr_mean|Baseline avg HR for IF 0.60-0.65 band (bpm)",
+        "fatigue_baseline_if_60_65_cardiac_cost_mean|Baseline cardiac cost for IF 0.60-0.65 band (bpm/watt)",
+        "fatigue_easy_rides_count|Number of easy rides in rolling window",
+        "fatigue_total_rides_count|Total rides in rolling window",
+        "fatigue_tss_weekly_total|Total TSS in rolling window",
+        "fatigue_tss_max_percent|Percentage of weekly TSS from highest-TSS ride",
+    ]
+
     all_metrics = []
 
     def collect(self):
@@ -92,11 +110,71 @@ class Metrics(object):
         self.all_metrics.append(self.active_metrics)
         self.all_metrics.append(self.misc_metrics)
         self.all_metrics.append(self.derived_metrics)
+        self.all_metrics.append(self.fatigue_metrics)
         for metrics in self.all_metrics:
             for metric in metrics:
                 name = metric.split("|")[0]
                 desc = metric.split("|")[1]
                 self.metrics[name] = Gauge(name, desc, ["period"])
+
+    def populate_fatigue_metrics(self, classification: dict, baseline: dict, gating: dict, load_context: dict):
+        """Populate Prometheus metrics from fatigue checker classification results.
+        
+        Args:
+            classification: result from FatigueChecker.aggregate_7day_classification()
+            baseline: baseline stats dict from FatigueChecker.build_baseline_statistics()
+            gating: rolling window gating result
+            load_context: training load context result
+        """
+        if not classification or not gating or not load_context:
+            return
+
+        # History sufficiency (1=yes, 0=no)
+        history_sufficient = 1 if classification.get("classification") != "neutral_noisy" or gating.get("eligible") else 0
+        self.metrics["fatigue_history_sufficient"].labels(period="7d").set(history_sufficient)
+
+        # Window eligibility
+        window_eligible = 1 if gating.get("eligible") else 0
+        self.metrics["fatigue_window_eligible"].labels(period="7d").set(window_eligible)
+
+        # Load context reliability
+        load_reliable = 1 if load_context.get("reliable") else 0
+        self.metrics["fatigue_load_context_reliable"].labels(period="7d").set(load_reliable)
+
+        # Classification labels (one-hot encoding)
+        class_label = classification.get("classification", "neutral_noisy")
+        self.metrics["fatigue_classification_neutral_noisy"].labels(period="7d").set(1 if class_label == "neutral_noisy" else 0)
+        self.metrics["fatigue_classification_absorbing_well"].labels(period="7d").set(1 if class_label == "absorbing_well" else 0)
+        self.metrics["fatigue_classification_non_training_fatigue"].labels(period="7d").set(1 if class_label == "non_training_fatigue_likely" else 0)
+        self.metrics["fatigue_classification_fatigue_accumulating"].labels(period="7d").set(1 if class_label == "fatigue_accumulating" else 0)
+
+        # Baseline stats per IF band
+        if_50_60 = baseline.get("IF_50_60", {})
+        hr_mean_50_60 = if_50_60.get("avg_heartrate", {}).get("mean")
+        self.metrics["fatigue_baseline_if_50_60_hr_mean"].labels(period="7d").set(hr_mean_50_60 or 0)
+
+        cc_mean_50_60 = if_50_60.get("cardiac_cost", {}).get("mean")
+        self.metrics["fatigue_baseline_if_50_60_cardiac_cost_mean"].labels(period="7d").set(cc_mean_50_60 or 0)
+
+        if_60_65 = baseline.get("IF_60_65", {})
+        hr_mean_60_65 = if_60_65.get("avg_heartrate", {}).get("mean")
+        self.metrics["fatigue_baseline_if_60_65_hr_mean"].labels(period="7d").set(hr_mean_60_65 or 0)
+
+        cc_mean_60_65 = if_60_65.get("cardiac_cost", {}).get("mean")
+        self.metrics["fatigue_baseline_if_60_65_cardiac_cost_mean"].labels(period="7d").set(cc_mean_60_65 or 0)
+
+        # Rolling window stats
+        total_rides = gating.get("total_rides", 0)
+        easy_rides = gating.get("easy_rides", 0)
+        self.metrics["fatigue_easy_rides_count"].labels(period="7d").set(easy_rides)
+        self.metrics["fatigue_total_rides_count"].labels(period="7d").set(total_rides)
+
+        # TSS stats
+        tss_stats = load_context.get("tss_stats", {})
+        tss_total = tss_stats.get("total", 0)
+        tss_max_pct = tss_stats.get("max_percent", 0)
+        self.metrics["fatigue_tss_weekly_total"].labels(period="7d").set(tss_total or 0)
+        self.metrics["fatigue_tss_max_percent"].labels(period="7d").set(tss_max_pct or 0)
 
     def populate_metrics(self, dailies):
         now = datetime.now()

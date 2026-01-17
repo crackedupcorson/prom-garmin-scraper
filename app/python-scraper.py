@@ -30,6 +30,33 @@ def get_dailies():
     dailies = scrape.get_daily_data()
     scrape.check_last_sync(dailies)
     metrics.populate_metrics(dailies)
+    
+    # Compute and expose fatigue metrics from recent 6 weeks of activity history
+    try:
+        intervals = Intervals()
+        activities = intervals.get_activities_in_last_x_weeks(6)
+        ids = intervals.get_activity_ids(activities)
+        rides = []
+        for aid in ids:
+            try:
+                file_path, metadata = intervals.get_activity_streams(aid)
+                if metadata.get("type") == "Walk":
+                    continue
+                activity_metrics = intervals.parse_activity(file_path, metadata)
+                rides.append(activity_metrics)
+            except Exception as e:
+                print(f"Caught exception {e} loading activity {aid} for fatigue, skipping")
+        
+        if rides:
+            fc = FatigueChecker()
+            baseline = fc.build_baseline_statistics(rides)
+            classification = fc.aggregate_7day_classification(rides)
+            gating = classification.get("gating", {})
+            load_context = classification.get("load_context", {})
+            metrics.populate_fatigue_metrics(classification, baseline, gating, load_context)
+    except Exception as e:
+        print(f"Failed to compute fatigue metrics: {e}")
+    
     return dailies
 
 
@@ -88,7 +115,7 @@ def fatigue_diag():
     Returns JSON with `history` gating, `baseline` stats per IF band,
     per-sample strain / comparison outputs, and classification.
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json()
     rides = data.get('rides', [])
     sample = data.get('ride')
     weeks = data.get('weeks')
@@ -148,6 +175,42 @@ def fatigue_diag():
         'sample_comparison': sample_comparison,
     }
     return json.dumps(resp, indent=2, default=utils.convert)
+
+
+@app.route('/fatigue/summary', methods=['GET', 'POST'])
+def fatigue_summary():
+    """Text summary endpoint for fatigue status (task 12).
+
+    Accepts optional query parameter `weeks` (default 6).
+    Fetches recent activity history and returns a human-readable summary.
+    """
+    weeks = request.args.get('weeks', default=6, type=int)
+    
+    try:
+        intervals = Intervals()
+        activities = intervals.get_activities_in_last_x_weeks(weeks)
+        ids = intervals.get_activity_ids(activities)
+        rides = []
+        for aid in ids:
+            try:
+                file_path, metadata = intervals.get_activity_streams(aid)
+                if metadata.get("type") == "Walk":
+                    continue
+                activity_metrics = intervals.parse_activity(file_path, metadata)
+                rides.append(activity_metrics)
+            except Exception as e:
+                print(f"Caught exception {e} loading activity {aid}, skipping")
+        
+        fc = FatigueChecker()
+        baseline = fc.build_baseline_statistics(rides)
+        classification = fc.aggregate_7day_classification(rides)
+        summary_text = fc.text_summary(classification, baseline, rides)
+        
+        return summary_text, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+    except Exception as e:
+        print(f"Failed to generate fatigue summary: {e}")
+        return f"Error: {e}", 500
+
 
 def register_prom_metrics():
     metrics.collect()

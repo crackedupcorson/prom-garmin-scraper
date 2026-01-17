@@ -16,8 +16,8 @@ Do NOT add any interpretation or classification logic into steps 3–6. Keep bas
 - [x] 8. Aggregate 7-day classifications
 - [x] 9. Implement rolling window gating
 - [x] 10. Training-load context checks
-- [ ] 11. Expose Prometheus metrics
-- [ ] 12. Add text summary endpoint
+- [x] 11. Expose Prometheus metrics
+- [x] 12. Add text summary endpoint
 - [ ] 13. Write unit tests for rules
 - [ ] 14. Document feature in README
 - [ ] 15. Make thresholds configurable
