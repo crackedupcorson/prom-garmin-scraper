@@ -56,8 +56,8 @@ Metrics include heart rate, stress, activity, body battery, sleep, and derived m
 ### Endpoints
 
 - `GET /metrics`: Prometheus metrics endpoint.
-- `GET /daily`: Fetches and exposes the latest daily Garmin data.
-- `GET /backfill?days=N`: Backfills and processes N days of historical data.
+- `GET /garmin/daily`: Fetches and exposes the latest daily Garmin data.
+- `GET /garmin/backfill?days=N`: Backfills and processes N days of historical data.
 - `GET /intervals/activity?id=<activity_id>`: Fetches the activity stream for the given activity id from the Intervals API and returns parsed JSON metrics for that activity.
 - `GET /intervals/activities?weeks=<N>`: Fetches activities from the last N weeks, downloads their streams and returns an array of parsed activity metrics (skips `Walk` activities).
 
@@ -68,8 +68,81 @@ Metrics include heart rate, stress, activity, body battery, sleep, and derived m
 - **Key metrics produced (examples)**: `avg_power`, `normalized_power`, `intensity_factor`, `tss`, `zone_times`, `zone_percentages`, `hr_drift`, `segment_times`, `segment_percentages`, `total_time`, `avg_heartrate`, `max_heartrate`, `avg_velocity`, `pace_zone_times`, `training_load`, and an `estimate_method` describing how the values were derived.
 - **Storage / files**: Streams are temporarily written to `GARTH_FOLDER/activity.csv` for parsing; a CSV of available activities is cached to `GARTH_FOLDER/activities.csv` for simple change-detection.
 
+## Fatigue Checker
 
-### Dashboards
+The **Fatigue Checker** is a conservative, rule-based system for detecting physiological strain mismatch during easy riding relative to training load. It is designed to complement subjective feel and help explain why legs feel heavy when training load looks reasonable.
+
+### Core Philosophy
+
+- **Interpretation layer, not decision engine**: Never prescribes workouts or claims causality.
+- **Conservative defaults**: False negatives preferred over false positives; if ambiguous, output is `neutral_noisy`.
+- **Rule-based only**: No machine learning, probabilistic models, or adaptive thresholds.
+- **Transparent**: All rules are explicit and intentionally simple.
+
+### How It Works
+
+The system performs **easy-ride strain detection** by comparing physiological metrics (HR, HR drift, cardiac cost) during easy rides against rolling baselines established for different intensity factor (IF) bands.
+
+**Key restrictions:**
+- Requires ≥21 days of historical data with reliable HR/power
+- Establishes separate baselines for IF bands: 0.50–0.60 and 0.60–0.65
+- Only evaluates easy rides (IF < 0.65, ≥60 min, ≥60% time in Z2 or below)
+- Requires ≥2 easy rides in a 7-day window (plus ≥5 total rides, no >3-day gaps)
+- Mutes conclusions if training load is skewed (single ride >60% of weekly TSS)
+
+### Classification Outputs
+
+When all gating checks pass:
+
+- **`neutral_noisy`**: No clear strain pattern; data is sufficient but signals are inconsistent.
+- **`non_training_fatigue_likely`**: 2 easy rides show elevated strain markers (HR, cardiac cost). Consistent with external stress (work, illness, sleep, etc.).
+- **`fatigue_accumulating`**: ≥3 easy rides show elevated strain. Consider additional rest or reduced intensity.
+
+If gating fails (insufficient data, large gaps, skewed load):
+- **`insufficient_history`** or **`neutral_noisy`**: System state reflects data quality, not physiological status.
+
+### Metrics Exposed (Prometheus)
+
+The system exposes raw, non-composite metrics for transparency:
+
+- Per-IF-band baseline statistics (mean HR, stdev, count)
+- Per-ride comparisons (delta, z-score relative to baseline)
+- Rolling window gating state (eligibility, reasons)
+- Training load context (TSS distribution, reliability)
+- 7-day classification and strain flags
+
+### Limitations & Design Notes
+
+- **No single-ride conclusions**: A single elevated ride is logged but does not trigger classification changes.
+- **High-IF rides excluded**: Workouts (IF ≥ 0.65) still count toward training load but do NOT influence easy-ride baselines.
+- **Z-score threshold**: Strain is flagged when z-score > 1.0 (one standard deviation above baseline).
+- **Baseline eligibility**: Each IF band requires ≥6 qualifying rides to establish a baseline. Bands with fewer rides are marked inactive.
+
+### Text Summary
+
+The system can generate a plain-English summary of fatigue status via the `/fatigue/summary` endpoint, designed to be understood by athletes without technical background.
+
+### Configuration
+
+Currently, thresholds are hardcoded in `app/garmin/fatigue.py`:
+
+- `define_if_bands()`: IF band definitions (adjust ranges and labels)
+- `is_easy_ride()`: Easy ride eligibility (IF < 0.65, ≥60 min, ≥60% Z2)
+- `aggregate_7day_classification()`: Strain flag thresholds (z-score > 1.0, flagged ride counts for classification)
+
+See step 15 on the roadmap for making these configurable.
+
+### Testing
+
+Comprehensive unit tests covering all rules are in `app/garmin/test_fatigue.py`:
+
+```bash
+pytest app/garmin/test_fatigue.py -v
+```
+
+Tests include history gating, IF band assignment, easy-ride detection, strain metric computation, baseline statistics, ride-to-baseline comparison, rolling window gating, training load context, and text summary generation.
+
+
 
 I've exported my dashboard as json, mostly for version control.
 A direct copy may not work as it's based on your datasource, but it's worth looking at for some examples. There's nothing too complicated like rates or deltas, it's mostly just standard queries on timeseries and pie chart panels.
