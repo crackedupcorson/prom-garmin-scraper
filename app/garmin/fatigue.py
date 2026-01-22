@@ -1,5 +1,92 @@
 import datetime
 from typing import List, Dict, Any, Tuple
+from dataclasses import dataclass
+
+
+@dataclass
+class FatigueConfig:
+    """Configuration for the Fatigue Checker system.
+
+    All thresholds and constraints are configurable here to enable
+    easy tuning without code changes. Default values match the documented
+    conservative, rule-based approach.
+    """
+
+    # History gating
+    min_history_days: int = 21
+    """Minimum days of historical data required before any interpretation."""
+
+    # Easy ride eligibility (per-ride level)
+    max_easy_ride_if: float = 0.65
+    """Maximum Intensity Factor for a ride to qualify as easy."""
+
+    min_easy_ride_duration_minutes: float = 60.0
+    """Minimum duration (minutes) for easy ride eligibility."""
+
+    min_easy_ride_z2_percent: float = 60.0
+    """Minimum percentage of time in Z2 or below for easy ride."""
+
+    # Baseline eligibility
+    min_rides_per_band: int = 6
+    """Minimum rides required to establish a baseline for an IF band."""
+
+    min_ride_duration_for_baseline_minutes: float = 45.0
+    """Minimum ride duration (minutes) to be included in baseline."""
+
+    max_pause_minutes: float = 2.0
+    """Maximum pause duration (minutes) allowed during a ride (not yet enforced)."""
+
+    # Rolling window gating
+    rolling_window_days: int = 7
+    """Window size for rolling analysis (days)."""
+
+    min_easy_rides_in_window: int = 2
+    """Minimum easy rides required in rolling window."""
+
+    min_total_rides_in_window: int = 5
+    """Minimum total rides required in rolling window."""
+
+    max_gap_days: int = 3
+    """Maximum gap (days) allowed between consecutive rides in window."""
+
+    # Training load context
+    min_rides_with_tss: int = 3
+    """Minimum rides with TSS values for reliable load context."""
+
+    max_single_ride_tss_percent: float = 60.0
+    """Maximum TSS as percent of weekly total for a single ride."""
+
+    # Strain detection thresholds
+    strain_zscore_threshold: float = 1.0
+    """Z-score threshold for flagging elevated strain in a metric."""
+
+    min_flagged_rides_for_non_training: int = 2
+    """Minimum flagged easy rides to classify as 'non_training_fatigue_likely'."""
+
+    min_flagged_rides_for_accumulating: int = 3
+    """Minimum flagged easy rides to classify as 'fatigue_accumulating'."""
+
+    # IF bands definition: list of (low, high, label) tuples
+    if_bands: List[Tuple[float, float, str]] = None
+    """IF bands for baseline segregation. Set on init if None."""
+
+    def __post_init__(self):
+        """Initialize default IF bands if not provided.
+        
+        IF (Intensity Factor) bands divide easy rides into sub-groups for separate
+        baselines. This allows the system to detect strain patterns across different
+        ride intensity levels while staying in the "easy" zone (<0.65).
+        
+        WHY 0.50–0.65 split into two bands?
+        - Lower IF (0.50–0.60): Very easy, high Z1/Z2 time. Lower absolute HR/power.
+        - Higher IF (0.60–0.65): Brisk easy, more Z3 time. Higher HR/power.
+        Splitting allows detection of recovery rides (very low HR) vs tempo easy rides.
+        """
+        if self.if_bands is None:
+            self.if_bands = [
+                (0.50, 0.60, "IF_50_60"),
+                (0.60, 0.65, "IF_60_65"),
+            ]
 
 
 class FatigueChecker:
@@ -8,21 +95,26 @@ class FatigueChecker:
     This module implements the "pure data" building blocks required by
     the higher-level interpretation logic. It intentionally does NOT
     perform final classifications or produce composite scores.
+
+    Configuration is driven by a FatigueConfig dataclass, allowing easy tuning
+    of all thresholds without code changes.
     """
 
-    def __init__(self):
-        # Default IF bands (lower inclusive, upper exclusive)
-        self.if_bands = self.define_if_bands()
+    def __init__(self, config: FatigueConfig = None):
+        """Initialize the FatigueChecker with optional configuration.
+
+        Args:
+            config: FatigueConfig instance. If None, default config is used.
+        """
+        self.config = config or FatigueConfig()
 
     def define_if_bands(self) -> List[Tuple[float, float, str]]:
         """Return IF bands as (low, high, label).
 
         This is a pure definition step (task 3). No interpretation.
+        Uses bands from config.
         """
-        return [
-            (0.50, 0.60, "IF_50_60"),
-            (0.60, 0.65, "IF_60_65"),
-        ]
+        return self.config.if_bands
 
     def history_gating(self, rides: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Basic gating checks over ride history (task 2).
@@ -31,6 +123,17 @@ class FatigueChecker:
         (ISO date string) and indicators that HR/power are present.
 
         Returns a dict describing sufficiency (pure check, no rules).
+        
+        WHY 21 days (default min_history_days)?
+        A ~3-week span provides stable baseline statistics for most sports. Shorter
+        windows are too noisy; longer windows become stale if training changes.
+        This aligns with standard TrainingPeaks CTS training phases.
+        
+        WHY require both HR and power?
+        Cardiac cost (HR/power) is a core strain metric. Without both, we cannot
+        compute meaningful baselines or detect physiological anomalies. Some devices
+        (e.g., indoor trainers) may record power but not HR; this filter ensures
+        we skip such incomplete records.
         """
         result = {"sufficient_history": False, "reasons": []}
         if not rides:
@@ -49,7 +152,7 @@ class FatigueChecker:
             return result
 
         span_days = (max(dates) - min(dates)).days + 1
-        if span_days < 21:
+        if span_days < self.config.min_history_days:
             result["reasons"].append("insufficient_history_days")
 
         # Check HR/power availability: require at least one ride with both
@@ -72,13 +175,13 @@ class FatigueChecker:
         Returns band label, "ignored_for_strain" if IF is out of easy-ride bands,
         or empty string if IF is None.
 
-        High-IF rides (>= 0.65) are explicitly excluded from strain baselines.
+        High-IF rides (>= config.max_easy_ride_if) are explicitly excluded from strain baselines.
         They still contribute to training load context (task 10) but do NOT
         influence easy-ride fatigue interpretation. This is by design, not a bug.
         """
         if intensity_factor is None:
             return ""
-        for low, high, label in self.if_bands:
+        for low, high, label in self.config.if_bands:
             if intensity_factor >= low and intensity_factor < high:
                 return label
         # Out-of-band rides (usually high-IF) are explicitly ignored for strain
@@ -91,6 +194,20 @@ class FatigueChecker:
         `zone_percentages` (dict keyed by zone labels) or `pace_zone_percentages`.
 
         Returns (is_easy, reasons_list). Pure gating logic only.
+        Uses config thresholds for IF, duration, and zone time.
+        
+        WHY these specific easy-ride gates?
+        
+        1. IF < 0.65: Hard cap on intensity. At IF ≥0.65, a ride enters threshold territory
+           where elevated HR/power is expected (not a sign of fatigue). The system explicitly
+           excludes high-IF rides from strain baselines.
+           
+        2. Duration ≥ 60 minutes: Shorter efforts are too noisy for cardiac cost baselines.
+           ~1h is a standard "Z2 steady" duration; this filters out short spin-ups.
+           
+        3. Z2 time ≥ 60%: Ensures the ride is truly aerobic/easy, not a misclassified tempo.
+           A ride labeled "easy" but spent mostly in Z3 is not a recovery ride and should
+           be excluded from fatigue analysis.
         """
         reasons: List[str] = []
         # Intensity factor
@@ -108,7 +225,7 @@ class FatigueChecker:
             except Exception:
                 reasons.append("invalid_if")
 
-        # Duration (require >= 60 minutes)
+        # Duration (require >= config.min_easy_ride_duration_minutes)
         total_seconds = ride.get("total_time")
         if total_seconds is None:
             # try minutes
@@ -120,10 +237,10 @@ class FatigueChecker:
                 total_seconds = float(total_minutes) * 60.0
 
         minutes = float(total_seconds) / 60.0 if total_seconds else 0.0
-        if minutes < 60.0:
+        if minutes < self.config.min_easy_ride_duration_minutes:
             reasons.append("short_duration")
 
-        # Percent time in Z2 or below (require >= 60%)
+        # Percent time in Z2 or below (require >= config.min_easy_ride_z2_percent)
         pct_z2_or_below = None
         zp = ride.get("zone_percentages") or ride.get("pace_zone_percentages")
         if isinstance(zp, dict):
@@ -142,13 +259,13 @@ class FatigueChecker:
         else:
             reasons.append("missing_zones")
 
-        if pct_z2_or_below is None or pct_z2_or_below < 60.0:
+        if pct_z2_or_below is None or pct_z2_or_below < self.config.min_easy_ride_z2_percent:
             reasons.append("insufficient_time_in_z2")
 
-        # IF check must be < 0.65
+        # IF check must be < config.max_easy_ride_if
         if if_val is not None:
             try:
-                if if_val >= 0.65:
+                if if_val >= self.config.max_easy_ride_if:
                     reasons.append("if_too_high")
             except Exception:
                 pass
@@ -168,6 +285,30 @@ class FatigueChecker:
         
         Returns a dict with strain metrics plus a "strain_applicable" flag
         indicating whether this ride can contribute to fatigue interpretation.
+        
+        KEY METRICS EXPLAINED:
+        
+        1. avg_heartrate / max_heartrate:
+           Raw HR data. Used for cardiac cost (HR/power) baseline.
+           
+        2. cardiac_cost = avg_heartrate / avg_power:
+           "Bang for buck" metric. Shows how much HR was needed to produce power.
+           Elevated cardiac cost (e.g., 0.75 instead of baseline 0.65) signals
+           sympathetic stress, possible fatigue, sleep debt, or illness.
+           
+        3. hr_drift = (second_half_avg_HR - first_half_avg_HR):
+           Positive drift signals fatigue during the ride (rising HR on fixed power).
+           Negative drift is unusual (better aerobic efficiency mid-ride).
+           Typical range: +0.5 to +10 bpm over a 60-minute ride.
+           
+        4. tss (Training Stress Score):
+           CoursePower/TrainingPeaks-derived metric combining duration, intensity,
+           and CP (Critical Power). Used for training load context (task 10).
+           
+        5. strain_applicable:
+           Flag = True iff ride is easy (IF <0.65, ≥60 min, Z2-time ≥60%).
+           High-IF rides are excluded from strain baselines by design.
+           They still count in training load but cannot trigger fatigue flags.
         """
         out: Dict[str, Any] = {}
 
@@ -300,17 +441,40 @@ class FatigueChecker:
         out["comparison"] = comp
         return out
 
-    def rolling_window_gating(self, rides: List[Dict[str, Any]], window_days: int = 7) -> Dict[str, Any]:
+    def rolling_window_gating(self, rides: List[Dict[str, Any]], window_days: int = None) -> Dict[str, Any]:
         """Check rolling window eligibility (task 9).
 
-        Returns gating status for a window. Rules:
-        - >= 2 eligible easy rides in window
-        - >= 5 total rides in window
-        - No gap > 3 days with zero riding
+        Returns gating status for a window. Rules (from config):
+        - >= config.min_easy_rides_in_window easy rides in window
+        - >= config.min_total_rides_in_window total rides in window
+        - No gap > config.max_gap_days with zero riding
+
+        Args:
+            rides: List of ride dicts
+            window_days: Override window size; if None, uses config.rolling_window_days
 
         Returns dict with `eligible: bool` and `reasons` list.
+        
+        WHY these gating rules?
+        
+        1. Minimum easy rides (default: 2):
+           Baselines need multiple observations to be stable. A single easy ride
+           could be anomalous. Two+ rides give confidence in the pattern.
+           
+        2. Minimum total rides (default: 5):
+           Ensures the week has reasonable training volume. A 1-ride week is
+           incomplete for fatigue analysis.
+           
+        3. No gap > 3 days:
+           Fitness changes rapidly during multi-day breaks. A gap indicates either
+           recovery block, travel, or illness—all confound fatigue interpretation.
+           If last ride was 5 days ago, the baseline is stale. This prevents
+           false positives from "detraining" metabolic changes.
         """
         import datetime as dt
+
+        if window_days is None:
+            window_days = self.config.rolling_window_days
 
         reasons: List[str] = []
 
@@ -331,20 +495,20 @@ class FatigueChecker:
 
         sorted_dates = sorted(set(dates))
         
-        # Check for gaps > 3 days
+        # Check for gaps > config.max_gap_days
         for i in range(len(sorted_dates) - 1):
             gap = (sorted_dates[i + 1] - sorted_dates[i]).days
-            if gap > 3:
+            if gap > self.config.max_gap_days:
                 reasons.append(f"gap_of_{gap}_days")
 
         # Count total rides
         total_rides = len(rides)
-        if total_rides < 5:
+        if total_rides < self.config.min_total_rides_in_window:
             reasons.append(f"only_{total_rides}_rides")
 
         # Count easy rides (strain_applicable = true)
         easy_count = sum(1 for r in rides if self.compute_per_ride_strain(r).get("strain_applicable"))
-        if easy_count < 2:
+        if easy_count < self.config.min_easy_rides_in_window:
             reasons.append(f"only_{easy_count}_easy_rides")
 
         eligible = len(reasons) == 0
@@ -354,13 +518,24 @@ class FatigueChecker:
         """Check training load context (task 10).
 
         Ensures TSS values are reliable and not skewed by single outliers.
+        Uses config thresholds for minimum rides and max single-ride percentage.
 
         Returns dict with `reliable: bool`, `reasons`, and `tss_stats`.
+        
+        WHY is load context important?
+        If one ride accounts for >60% of weekly TSS (e.g., one 200-TSS race
+        in a 300-TSS week), the baseline is distorted. Easy rides after that
+        outlier will appear "elevated" not because of fatigue but because the
+        weekly context is skewed. This check prevents misinterpretation.
+        
+        Default: max 60% from a single ride. This allows normal intensity
+        variation (one hard session per week = ~40–50% of total) while flagging
+        extreme outliers (races, long epics, etc.).
         """
         reasons: List[str] = []
         tss_values = [r.get("tss") for r in rides if r.get("tss") is not None]
 
-        if len(tss_values) < 3:
+        if len(tss_values) < self.config.min_rides_with_tss:
             reasons.append(f"only_{len(tss_values)}_rides_with_tss")
             return {"reliable": False, "reasons": reasons, "tss_stats": {}}
 
@@ -368,7 +543,7 @@ class FatigueChecker:
         max_tss = max(tss_values)
         max_pct = (max_tss / total_tss * 100.0) if total_tss > 0 else 0.0
 
-        if max_pct > 60.0:
+        if max_pct > self.config.max_single_ride_tss_percent:
             reasons.append(f"single_ride_is_{max_pct:.1f}pct_of_weekly")
 
         reliable = len(reasons) == 0
@@ -388,6 +563,32 @@ class FatigueChecker:
 
         Produces a conservative label for the 7-day window.
         Returns classification with reasoning (never interprets causality).
+        
+        CLASSIFICATION RULES (using config thresholds):
+        
+        1. If gating fails (insufficient data, gaps, too few easy rides):
+           → classification = "neutral_noisy"
+           Reason: Data is insufficient. No interpretation attempted.
+           
+        2. If load context is unreliable (single ride >60% of TSS):
+           → classification = "neutral_noisy"
+           Reason: Training load is skewed. Strain patterns are unreliable.
+           
+        3. If ≥3 easy rides show elevated strain (HR/cardiac cost/hr_drift z>1.0):
+           → classification = "fatigue_accumulating"
+           Reason: Multiple signals indicate physiological strain. Consider recovery.
+           
+        4. If 2 easy rides show elevated strain:
+           → classification = "non_training_fatigue_likely"
+           Reason: Possible external stress (work, illness, sleep). Not training-load-driven.
+           
+        5. Otherwise:
+           → classification = "neutral_noisy"
+           Reason: No clear pattern detected or <2 rides elevated.
+           
+        KEY DESIGN: We count unique RIDES (not metrics). One ride with
+        3 elevated metrics = 1 "flagged ride", not 3. This is conservative
+        and prevents metric redundancy from inflating the signal.
         """
         # Pre-check: gating and load context
         gating = self.rolling_window_gating(rides)
@@ -424,19 +625,19 @@ class FatigueChecker:
         for ride in easy_rides:
             comp = self.compare_ride_to_baseline(ride, baseline)
             if comp.get("comparison"):
-                # Flag if any metric is elevated (zscore > 1.0)
+                # Flag if any metric is elevated (zscore > config.strain_zscore_threshold)
                 for metric, vals in comp["comparison"].items():
                     z = vals.get("zscore")
-                    if z is not None and z > 1.0:
+                    if z is not None and z > self.config.strain_zscore_threshold:
                         strain_flags.append({"ride_date": ride.get("date"), "metric": metric, "zscore": z})
 
         flagged_rides = len(set(sf["ride_date"] for sf in strain_flags))
 
-        # Conservative classification rules
-        if flagged_rides >= 3:
+        # Conservative classification rules (using config thresholds)
+        if flagged_rides >= self.config.min_flagged_rides_for_accumulating:
             result["classification"] = "fatigue_accumulating"
             result["reasons"].append(f"{flagged_rides}_of_{len(easy_rides)}_easy_rides_elevated")
-        elif flagged_rides >= 2:
+        elif flagged_rides >= self.config.min_flagged_rides_for_non_training:
             result["classification"] = "non_training_fatigue_likely"
             result["reasons"].append(f"{flagged_rides}_rides_show_strain_pattern")
         elif flagged_rides >= 1:
@@ -470,9 +671,24 @@ class FatigueChecker:
             lines.append("⚠️  INSUFFICIENT DATA FOR INTERPRETATION")
             reasons = gating.get("reasons", [])
             if reasons:
-                lines.append(f"Gating failures: {', '.join(reasons)}")
+                # Parse and explain gaps, insufficient rides, etc.
+                gap_reasons = [r for r in reasons if r.startswith("gap_of_")]
+                ride_reasons = [r for r in reasons if "rides" in r]
+                
+                if gap_reasons:
+                    lines.append("")
+                    lines.append("Gaps detected:")
+                    for gap_reason in gap_reasons:
+                        lines.append(f"  • {gap_reason} — fitness/baseline became stale")
+                
+                if ride_reasons:
+                    lines.append("")
+                    for ride_reason in ride_reasons:
+                        lines.append(f"  • {ride_reason.replace('_', ' ')}")
+                
             lines.append("")
-            lines.append("Once the rolling window stabilizes (no >3-day gaps), strain patterns will be analyzed.")
+            lines.append("Once the rolling window stabilizes (7+ consecutive days with no >3-day gaps,")
+            lines.append("≥5 total rides, ≥2 easy rides), strain patterns will be analyzed.")
             return "\n".join(lines)
 
         # Load context
@@ -535,4 +751,4 @@ class FatigueChecker:
         return "\n".join(lines)
 
 
-__all__ = ["FatigueChecker"]
+__all__ = ["FatigueChecker", "FatigueConfig"]
