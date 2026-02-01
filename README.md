@@ -7,6 +7,7 @@ This tool is a Python-based scraping application that collects daily health and 
 The inspiration came from when I was recovering from covid and was trying to pin point when my long covid had improved - by using my oxygen intake data on my watch. Garmin provide this data on their app and on weekly reports, but I wanted an in-depth approach to it. 
 
 
+test 
 ## Setup
 
 ### Prerequisites
