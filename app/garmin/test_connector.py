@@ -29,7 +29,8 @@ class TestConnector(unittest.TestCase):
             mock_garth.save.assert_not_called()
 
     @patch("app.garmin.connector.garth")
-    def test_init_not_logged_in(self, mock_garth):
+    @patch("app.garmin.connector.logger")
+    def test_init_not_logged_in_does_not_log_credentials(self, mock_logger, mock_garth):
         with patch.dict(os.environ, {"GARMIN_USER": "test_user", "GARTH_FOLDER": self.garth_folder, "GARMIN_PASS": "test_pass"}):
             # Mock the garth functions
             mock_garth.resume.side_effect = FileNotFoundError
@@ -41,6 +42,14 @@ class TestConnector(unittest.TestCase):
             # Check that login and save were called
             mock_garth.login.assert_called_once_with("test_user", "test_pass")
             mock_garth.save.assert_called_once_with(self.garth_folder)
+
+            logged_values = " ".join(
+                str(argument)
+                for call in mock_logger.method_calls
+                for argument in call.args
+            )
+            self.assertNotIn("test_user", logged_values)
+            self.assertNotIn("test_pass", logged_values)
 
 if __name__ == "__main__":
     unittest.main()

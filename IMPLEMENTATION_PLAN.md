@@ -7,6 +7,8 @@ This is the implementation backlog for the v2 branch. The authoritative product 
 
 The service should evolve from a Garmin-to-Prometheus prototype into a durable, explainable personal training-intelligence service. Work is intentionally phased: data trust comes before richer analysis, and analysis comes before coaching/reporting features.
 
+Product priority labels in the agent documents (`P0`, `P1`, and `P2`) describe user value and urgency. They do not override the implementation dependencies or permit later-phase work to bypass the Phase 0 safety and architecture gates.
+
 ## Current assessment
 
 The repository has useful foundations:
@@ -28,6 +30,7 @@ The current implementation is not yet the target architecture:
 - The fatigue defaults do not fit the normal 45–50 minute, 3–4 ride/week pattern.
 - Helm has no health probes or scheduled sync/analysis CronJobs.
 - Existing alerts include noisy or medically suggestive interpretations that do not fit the product principles.
+- SQLite/PVC/CronJob topology has not yet been designed well enough to safely begin persistence work.
 
 ## Delivery rules
 
@@ -38,6 +41,23 @@ The current implementation is not yet the target architecture:
 - Keep Prometheus for current-state and operational metrics, not historical source-of-truth data.
 - Do not add a prescriptive workout engine or a composite readiness score.
 - Do not deploy automatically to the live Kubernetes cluster.
+- Copilot implements only the current brief; it does not expand scope without review.
+- Codex reviews code and tests before a task is accepted or marked complete.
+- Phase transitions require product-owner approval.
+
+## Immediate safety fix
+
+### TI-000 — Remove credential logging
+
+Status: complete in v2 working tree.
+
+Remove password and token exposure from stdout/logging in Garmin authentication. Preserve useful authentication state messages without logging usernames, passwords, tokens, or payloads.
+
+Acceptance:
+
+- No Garmin password is printed or logged.
+- Authentication tests cover the login path and assert that captured output/log records contain no credential values.
+- This fix remains independent of the configuration and provider-adapter migrations.
 
 ## Phase 0 — Establish a safe baseline
 
@@ -60,6 +80,27 @@ Acceptance:
 - Tests run from a clean environment using one documented command.
 - Garmin, Intervals.icu, Slack, and Prometheus are not required for unit tests.
 - The test suite includes parser, normalization, storage, sync, and API boundary coverage.
+
+### TI-002B — Resolve SQLite/PVC/CronJob deployment topology
+
+Design and record the safe single-writer deployment topology before persistence implementation begins. SQLite remains the preferred starting point.
+
+The design must cover:
+
+- ReadWriteOnce PVC ownership and pod scheduling/affinity.
+- How the API Deployment and sync/analysis CronJobs avoid concurrent SQLite writers.
+- Migration execution and failure/retry behavior.
+- Backup, restore, retention, and corruption-recovery procedures.
+- What operational signal indicates that SQLite is no longer sufficient and PostgreSQL should be reconsidered.
+
+Acceptance:
+
+- The chosen topology is documented with a deployment sequence and failure scenarios.
+- Only one process can perform SQLite writes at a time.
+- Migrations are run exactly once per release or otherwise safely serialized.
+- Backups can be taken without corrupting the database and a restore procedure is tested.
+- The design does not require CronJobs to access the Kubernetes API merely to invoke the service.
+- No persistence implementation starts until this task is approved.
 
 ## Phase 1 — Trust the data
 
@@ -248,6 +289,6 @@ Notify only for stale/failed syncs, completed weekly reviews, or persistent mism
 
 The critical path is:
 
-`TI-001 → TI-003 → TI-004 → TI-005 → TI-006 → TI-007 → TI-008/TI-009 → TI-010 → TI-011–TI-014 → TI-015–TI-018 → TI-019–TI-022`
+`TI-000 → TI-001 → TI-002 → TI-002B → TI-003 → TI-004 → TI-005 → TI-006 → TI-007 → TI-008/TI-009 → TI-010 → TI-011–TI-014 → TI-015–TI-018 → TI-019–TI-022`
 
-The first meaningful milestone is Phase 1: a durable, restart-safe canonical record with reliable sync status. More dashboards should wait until that milestone is complete.
+The first meaningful milestone is Phase 1: a durable, restart-safe canonical record with reliable sync status. More dashboards should wait until that milestone is complete. Phase 1 must not begin until TI-002B has been reviewed and approved.

@@ -1,8 +1,10 @@
-import logging
 import os
+import logging
 
 import garth
 from garth.exc import GarthException
+
+logger = logging.getLogger(__name__)
 
 
 class Connector:
@@ -16,7 +18,7 @@ class Connector:
         self.garmin_pass = os.environ.get("GARMIN_PASS")
 
         if not self.is_logged_in():
-            print(f"Logging in with {self.garmin_user} and {self.garmin_pass}")
+            logger.info("Garmin OAuth tokens unavailable; attempting login")
             garth.login(self.garmin_user, self.garmin_pass)
             garth.save(self.garth_folder)
 
@@ -27,14 +29,14 @@ class Connector:
         try:
             garth.resume(self.garth_folder)
         except FileNotFoundError:
-            print("OAuth2 tokens don't exist")
+            logger.info("Garmin OAuth tokens do not exist")
             return False
         try:
             garth.client.username
         except GarthException:
-            print("Session is expired, new login required")
+            logger.info("Garmin OAuth session is expired; login required")
             return False
-        print("OAuth tokens valid, already logged in")
+        logger.info("Garmin OAuth tokens are valid")
         return True
 
     def does_garth_exist(self):
