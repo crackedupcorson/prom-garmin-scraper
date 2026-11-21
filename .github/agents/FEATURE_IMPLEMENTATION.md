@@ -1,7 +1,8 @@
 # Training Intelligence Service --- Feature Implementation Guide
 
 **Purpose:** Turn the product recommendations into implementable work
-packages for Codex.\
+packages for me to work on. This is a personal learning and implementation project; I own all implementation work, including coding, testing, debugging, refactoring, architecture decisions, and system design.
+Any use of AI should be used for advisory purposes only, and I will make all implementation decisions.
 **Target:** Existing Python service deployed to the user's
 Kubernetes/K3s cluster with Helm.
 
