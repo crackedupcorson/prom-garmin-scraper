@@ -1,4 +1,4 @@
-# prom-garmin-scraper
+vi# prom-garmin-scraper
 
 This repository contains the v2 implementation of a personal training-intelligence service. It currently combines Garmin wellness data, Intervals.icu activity data, Prometheus metrics, and Helm deployment configuration.
 
@@ -46,6 +46,42 @@ pytest -q
 ```
 
 Provider-dependent tests should use mocks or fixtures and must not require live Garmin, Intervals.icu, Slack, Prometheus, or Kubernetes services.
+
+## Local container build and run
+
+The application is packaged as a Docker container and listens on port `8080` when started by the entrypoint in `app/python-scraper.py`.
+
+Build the image from the repository root:
+
+```bash
+docker build -t prom-garmin-scraper .
+```
+
+Run it locally with your environment variables loaded from a local `.env` file or via `-e` flags:
+
+```bash
+cat > .env <<'EOF'
+GARMIN_USER=your-garmin-user
+GARMIN_PASS=your-garmin-password
+GARTH_FOLDER=/tmp/garth
+INTERVALS_API_KEY=your-intervals-key
+SLACK_BOT_TOKEN=your-slack-token
+SLACK_CHANNEL=your-slack-channel
+SLACK_USER_ID=your-slack-user-id
+EOF
+
+docker run --rm -it \
+  --env-file .env \
+  -p 8080:8080 \
+  prom-garmin-scraper
+```
+
+Once the container is running, the service is available at:
+
+- `http://localhost:8080/metrics`
+- `http://localhost:8080/garmin/daily`
+
+> The Dockerfile uses the official multi-architecture Python image. A regular `docker build` creates an image for your host architecture; the GitHub Actions workflow publishes both `linux/amd64` and `linux/arm64` variants for K3s to select automatically. To build an ARM64 image locally from another architecture, use `docker buildx build --platform linux/arm64 --load -t prom-garmin-scraper .`.
 
 ## Existing endpoints
 
