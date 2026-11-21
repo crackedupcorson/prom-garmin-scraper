@@ -11,10 +11,14 @@ class Scrape():
     slack_channel = ""
     slack_user_id = ""
     slack_auth_token = ""
+    deviceName = ""
+    
     def __init__(self):
         self.slack_channel = os.environ.get("SLACK_CHANNEL")
         self.slack_user_id = os.environ.get("SLACK_USER_ID")
         self.slack_auth_token = os.environ.get("SLACK_BOT_TOKEN")
+        self.deviceName = os.environ.get("DEVICE_NAME")
+
     def get_daily_data(self):
         date = datetime.datetime.now()
         date_str = date.strftime('%Y-%m-%d')
@@ -24,11 +28,17 @@ class Scrape():
         dailies = garth.connectapi(f"/usersummary-service/usersummary/daily", params=params)
         devices = garth.connectapi("/device-service/deviceregistration/devices")
         for device in devices:
-            if device["displayName"] == "main-watch":
+            if device["displayName"] == self.deviceName:
                 deviceId = device["deviceId"]
                 device_data = garth.connectapi(f"device-service/deviceservice/user-device/{deviceId}")
+                if not device_data:
+                    print(f"Device {deviceId} has no data")
+                    continue
                 sync_time = device_data["lastUploadTimestamp"]
-                dailies["lastUploadSyncTime"] = sync_time
+                if sync_time:
+                    dailies["lastUploadSyncTime"] = sync_time
+                else:
+                    print(f"Device {deviceId} has no lastUploadTimestamp")
         return dailies
 
     def get_historical_data(self, days):
