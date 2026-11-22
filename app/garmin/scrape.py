@@ -28,15 +28,12 @@ class Scrape():
         dailies = garth.connectapi(f"/usersummary-service/usersummary/daily", params=params)
         devices = garth.connectapi("/device-service/deviceregistration/devices")
         for device in devices:
+            print("Checking device:", device["displayName"])
             if device["displayName"] == self.deviceName:
                 deviceId = device["deviceId"]
                 device_data = garth.connectapi(f"device-service/deviceservice/user-device/{deviceId}")
-                if not device_data:
-                    print(f"Device {deviceId} has no data")
-                    continue
-                sync_time = device_data["lastUploadTimestamp"]
-                if sync_time:
-                    dailies["lastUploadSyncTime"] = sync_time
+                if "lastUploadTimestamp" in device_data and device_data["lastUploadTimestamp"] is not None:
+                    dailies["lastUploadSyncTime"] = device_data["lastUploadTimestamp"]
                 else:
                     print(f"Device {deviceId} has no lastUploadTimestamp")
         return dailies
