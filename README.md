@@ -93,7 +93,7 @@ These routes are compatibility interfaces while the v2 services are introduced:
 - `GET /intervals/activity?id=...` — Parse one Intervals.icu activity.
 - `GET /intervals/activities?weeks=...` — Retrieve and parse recent activities.
 - `POST /fatigue/diag` — Existing fatigue diagnostic interface.
-- `GET /fatigue/summary` — Existing plain-text fatigue summary.
+- `GET` and `POST /fatigue/summary` — Existing plain-text fatigue summary; POST currently uses the same query parameters and does not read a body.
 
 
 
@@ -138,25 +138,27 @@ Use this section to decide what existing behavior must be preserved while the im
 
 - **Disposition:** Keep.
 - **Reason / direction:** Both versions may contribute metrics. Adding labels to distinguish versions may be acceptable because the Grafana dashboard and Prometheus alerts are relatively simple.
-- **Current contract notes:** No request parameters. Metric names, types, and labels are defined in `app/garmin/metrics.py`. Prometheus client provides the exposition endpoint; no authentication is required.
-- **To verify / decide:** Confirm the actual content type and format. Determine whether adding labels would break existing dashboard queries or alerts. Do not promise a specific error status unless it is an intentional requirement.
-- **Tests / evidence:** Protect metric names, types, and labels that consumers rely on; cover dashboard/alert query compatibility where needed.
+- **Current contract notes:** No request parameters or authentication. Prometheus' WSGI app serves the default registry. Metrics are `Gauge`s; daily, derived, and miscellaneous metrics use a `period` label, while fatigue metrics use `period="7d"`. The declared names and help text are in `app/garmin/metrics.py`.
+- **Current behavior:** `/garmin/daily` populates the daily gauges; fatigue gauges are populated when the route's activity analysis succeeds. The exposition route itself does not fetch Garmin data.
+- **To verify / decide:** Confirm actual response content type/version and which metric names, types, labels, and scrape behavior existing dashboard queries/alerts rely on. The current `WORK_START >= hour < WORK_END` condition with start 9 and end 6 labels weekday hours 00:00–05:59 as `work` and other times as `off_work`; decide whether that is intentional or a bug before treating the label values as a compatibility guarantee. The code uses local system time. Do not promise a specific error status unless intentional.
+- **Tests / evidence:** Protect only the metric series consumers use; validate dashboard/alert queries if label or series changes are planned.
 - **Removal / migration condition:** Not applicable while this endpoint is kept.
 
 #### `GET /garmin/daily`
 
 - **Disposition:** Keep; current version is not expected to require an API change.
-- **Current contract notes:** No request parameters. Returns Garmin's daily-summary JSON, augmented with `lastUploadSyncTime`. The route also updates Prometheus metrics and checks whether the configured watch sync is stale.
-- **Known edge cases:** A daily summary may not exist yet if the endpoint is called before the watch syncs. Garmin/provider failures can also occur; the current route has little explicit error handling.
-- **To verify / decide:** Decide the intended response for “not synced yet” and for provider failure. Confirm whether any caller relies on the JSON response, beyond Prometheus being updated.
-- **Tests / evidence:** Cover the agreed successful response and the chosen no-summary behavior. Add provider-failure coverage only to the extent needed to establish the intended endpoint behavior; mock Garmin and Slack interactions.
+- **Current contract notes:** No request parameters. Returns the Garmin daily-summary object, augmented with `lastUploadSyncTime` when a matching configured device has a truthy `lastUploadTimestamp`. Flask serializes the returned object as JSON.
+- **Current side effects:** Checks the last watch sync and may notify Slack if it is more than four hours old. Populates Garmin-derived Prometheus metrics. It also fetches up to six weeks of Intervals.icu activities and attempts to populate fatigue metrics; failures in this latter analysis block are printed and swallowed.
+- **Known edge cases:** `get_daily_data()` may return no summary before the watch syncs. `check_last_sync()` indexes `lastUploadSyncTime` directly, and `populate_metrics()` expects a mapping, so the no-summary path can fail before returning a response. Exceptions during initial Garmin retrieval or these pre-analysis steps are not explicitly caught by the route and therefore use Flask's error handling. A missing matching device or missing timestamp can also leave the key absent.
+- **To verify / decide:** Choose the desired response for no summary and provider failure. Confirm whether any caller relies on the JSON response as well as the `/metrics` side effect. Confirm whether the Slack notification is part of the behavior to preserve.
+- **Tests / evidence:** Protect the agreed successful response and chosen no-summary/failure behavior. Mock Garmin and Slack; test the fatigue-fetch best-effort behavior only if it is part of the kept route contract.
 - **Removal / migration condition:** Not applicable while this endpoint is kept.
 
 #### `GET /garmin/backfill`
 
 - **Disposition:** Deprecate.
 - **Reason / direction:** The current implementation was not thoroughly tested. Replace it with a more reliable data-ingestion method.
-- **Current contract notes:** **To verify** the exact request, response, side effects, and whether anything calls this route.
+- **Current contract notes:** Optional query parameter `days`, converted to an integer, defaults to `1`. The loop fetches days `1` through `days - 1` (not today), so the default produces an empty backfill. On success it returns plain text `Successfully found records for N days`. Each record is written by `TsdbGenerator` to a hard-coded Windows-style path; this may not work as intended on the current Linux runtime. Invalid `days`, provider failures, and file errors are not handled by the route.
 - **To decide:** Identify any consumer and the successor workflow. Decide whether this route needs a transition period or can be retired once the successor exists.
 - **Tests / evidence:** Avoid expanding tests for behavior you intend to remove; add migration or retirement checks if a consumer exists.
 - **Removal condition:** Specify after identifying whether there are consumers and what replaces the route.
@@ -165,7 +167,8 @@ Use this section to decide what existing behavior must be preserved while the im
 
 - **Disposition:** Replace.
 - **Reason / direction:** The current implementation performs local file manipulation; optimize or replace that approach if the functionality is still needed.
-- **Current contract notes:** Requires an activity ID and returns parsed metrics for one activity. **To verify** exact response details and side effects.
+- **Current contract notes:** Reads query parameter `id` (no explicit validation), fetches activity metadata and streams, parses them, and returns an indented JSON-encoded metrics object. It writes stream data to `activity.csv` and attempts to append activity metadata to `activities.csv`. The route currently refers to `intervals.activites_file_path`, while `Intervals` defines `activities_file_path`; verify/fix this behavior before treating the route as operational.
+- **Error behavior:** Errors are not caught by the route; missing IDs, provider/parse/file errors use Flask's error handling. **To verify** actual response content type and status with the Flask test client if this route is retained.
 - **To decide:** Is the API itself being replaced, or only its implementation? Is this functionality used outside manual debugging?
 - **Tests / evidence:** Test the contract only if it has a consumer or a planned successor; keep provider access mocked.
 - **Removal condition:** Specify whether the route remains as a compatibility adapter and when it can be removed.
@@ -174,7 +177,7 @@ Use this section to decide what existing behavior must be preserved while the im
 
 - **Disposition:** Deprecate.
 - **Reason / direction:** Its value is unclear; similar functionality could be added in a later phase if needed.
-- **Current contract notes:** `weeks` defaults to 6. Returns parsed activity metrics; walking activities are skipped. **To verify** response guarantees and consumers.
+- **Current contract notes:** Query parameter `weeks` defaults to string `"6"` and is converted to an integer. Fetches activity history, skips `Walk` activities, parses the rest, and attempts to append activity IDs/dates/types to `activities.csv`. Per-activity exceptions are printed and skipped. Returns a JSON-encoded array as a string; the route does not explicitly set a JSON content type. Errors outside the per-activity loop are not caught by the route.
 - **To decide:** Confirm whether anything uses this endpoint and whether it needs a successor.
 - **Tests / evidence:** No need to preserve incidental behavior if there are no consumers and the route is retired; verify consumers before removal.
 - **Removal condition:** Decide after consumer and successor checks.
@@ -182,7 +185,7 @@ Use this section to decide what existing behavior must be preserved while the im
 #### `GET /fatigue/summary` and `POST /fatigue/summary`
 
 - **Disposition:** Replace. `GET` is the primary compatibility contract; `POST` appears to be accidental and does not define a separate request-body contract.
-- **Current contract notes:** `GET` accepts optional `weeks` (default 6) and returns a plain-text summary. It fetches recent activity history from Intervals.icu.
+- **Current contract notes:** Both methods read only query parameter `weeks` (integer, default 6); request bodies are ignored. Fetches recent Intervals.icu activities, skips `Walk` activities, and skips individual activity failures. A successful response is the summary as `text/plain; charset=utf-8`, status 200. An exception in the outer processing block returns `Error: ...` with status 500; the error response does not explicitly set a content type.
 - **To decide:** Is the API being replaced, or only the implementation? Confirm whether anything calls `POST`; decide whether to retain it temporarily or remove it with the successor.
 - **Tests / evidence:** Protect the `GET` behavior only if it has a consumer or is intentionally retained. Test POST only if a compatibility need is found.
 - **Removal condition:** Define the successor and any transition needed for existing callers.
@@ -191,7 +194,13 @@ Use this section to decide what existing behavior must be preserved while the im
 
 - **Disposition:** Deprecate.
 - **Reason / direction:** Primarily used to inspect fatigue calculations while developing. Better testing methods should be used; analysis of a particular recording may still be useful as a development tool.
-- **Current contract notes:** Accepts JSON inputs for rides, a sample ride, or a requested history window; can also load an activity by ID. Returns fatigue analysis JSON.
+- **Current contract notes:** Accepts JSON fields `rides`, `ride`, `weeks`, and `activity_id`; `activity_id` may also be supplied as a query parameter, which takes precedence. A truthy `weeks` fetches recent Intervals.icu history; an ID can fetch a single sample activity. Returns JSON-encoded analysis containing `history`, `baseline`, `classification`, `sample_metrics`, `is_easy`, `is_easy_reasons`, and `sample_comparison`. Walk activities are skipped when loading history. The route does not explicitly set a JSON content type.
+- **Error behavior:** Provider errors during history/sample fetch are printed and partly swallowed; malformed/missing JSON or errors during calculation can escape the handler. **To verify** exact status/content type if this route is retained.
 - **To decide:** Is this only a development aid, or does it provide a useful manual diagnostic capability? If retired, what replaces that workflow?
 - **Tests / evidence:** Keep calculation tests separate from this route. Add route tests only if the endpoint is intentionally retained or has a consumer.
 - **Removal condition:** Decide after choosing whether the manual diagnostic workflow is still needed.
+
+### Current test baseline and remaining decisions
+
+- Existing tests cover selected `Scrape` and `Metrics` behavior, but current test files do not appear to exercise Flask routes through a test client. Route status codes, response serialization/content types, and end-to-end side effects should therefore be treated as unverified until inspected or tested.
+- Before calling TI-001 complete, verify actual consumers (Prometheus/Grafana and any manual callers), decide the open questions above, and state which observable behaviors will be protected. Do not add tests just to freeze behavior marked for retirement.
