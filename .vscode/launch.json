@@ -4,14 +4,21 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
         {
-            "name": "Python Debugger: Current File with Arguments",
+            "name": "Prom Garmin Scraper: Debug server",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/app/python-scraper.py",
+            "cwd": "${workspaceFolder}/app",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "console": "integratedTerminal",
-            "args": "${command:pickArgs}"
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "INTERVALS_BASE_URL": "https://intervals.icu",
+                "SLACK_USER_ID": ""
+            },
+            "justMyCode": true,
+            "stopOnEntry": false
         }
     ]
 }

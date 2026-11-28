@@ -1,6 +1,6 @@
 import unittest
 import datetime
-from app.garmin.fatigue import FatigueChecker, FatigueConfig
+from garmin.fatigue import FatigueChecker, FatigueConfig
 
 
 class TestFatigueCheckerHistoryGating(unittest.TestCase):

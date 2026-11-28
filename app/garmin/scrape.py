@@ -11,10 +11,14 @@ class Scrape():
     slack_channel = ""
     slack_user_id = ""
     slack_auth_token = ""
+    deviceName = ""
+    
     def __init__(self):
         self.slack_channel = os.environ.get("SLACK_CHANNEL")
         self.slack_user_id = os.environ.get("SLACK_USER_ID")
         self.slack_auth_token = os.environ.get("SLACK_BOT_TOKEN")
+        self.deviceName = os.environ.get("DEVICE_NAME")
+
     def get_daily_data(self):
         date = datetime.datetime.now()
         date_str = date.strftime('%Y-%m-%d')
@@ -24,11 +28,14 @@ class Scrape():
         dailies = garth.connectapi(f"/usersummary-service/usersummary/daily", params=params)
         devices = garth.connectapi("/device-service/deviceregistration/devices")
         for device in devices:
-            if device["displayName"] == "main-watch":
+            print("Checking device:", device["displayName"])
+            if device["displayName"] == self.deviceName:
                 deviceId = device["deviceId"]
                 device_data = garth.connectapi(f"device-service/deviceservice/user-device/{deviceId}")
-                sync_time = device_data["lastUploadTimestamp"]
-                dailies["lastUploadSyncTime"] = sync_time
+                if "lastUploadTimestamp" in device_data and device_data["lastUploadTimestamp"] is not None:
+                    dailies["lastUploadSyncTime"] = device_data["lastUploadTimestamp"]
+                else:
+                    print(f"Device {deviceId} has no lastUploadTimestamp")
         return dailies
 
     def get_historical_data(self, days):
@@ -46,7 +53,7 @@ class Scrape():
 
     def check_last_sync(self, dailies):
         scrape_time = datetime.datetime.now()
-        if dailies["lastUploadSyncTime"]:
+        if "lastUploadSyncTime" in dailies:
             sync_time = dailies["lastUploadSyncTime"]
             sync_time = datetime.datetime.fromtimestamp(sync_time / 1000.0)
             time_difference = scrape_time - sync_time
@@ -56,9 +63,12 @@ class Scrape():
                 self.send_message(msg)
                 
     def send_message(self, msg):
+        message_sent = False
         client = WebClient(token=self.slack_auth_token)
         try:
             result = client.chat_postMessage(channel=self.slack_channel, text=msg)
-            print(result)
+            if result["ok"]:
+                message_sent = True
         except SlackApiError as e:
             print(f"Error: {e}")
+        return message_sent

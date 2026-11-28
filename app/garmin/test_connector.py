@@ -2,7 +2,7 @@ import os
 import unittest
 import tempfile
 from unittest.mock import patch
-from app.garmin.connector import Connector
+from garmin.connector import Connector
 
 class TestConnector(unittest.TestCase):
 
@@ -14,7 +14,7 @@ class TestConnector(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    @patch("app.garmin.connector.garth")
+    @patch("garmin.connector.garth")
     def test_init_already_logged_in(self, mock_garth):
         with patch.dict(os.environ, {"GARMIN_USER": "test_user", "GARTH_FOLDER": self.garth_folder, "GARMIN_PASS": "test_pass"}):
             # Mock the garth functions
@@ -28,8 +28,8 @@ class TestConnector(unittest.TestCase):
             mock_garth.login.assert_not_called()
             mock_garth.save.assert_not_called()
 
-    @patch("app.garmin.connector.garth")
-    @patch("app.garmin.connector.logger")
+    @patch("garmin.connector.garth")
+    @patch("garmin.connector.logger")
     def test_init_not_logged_in_does_not_log_credentials(self, mock_logger, mock_garth):
         with patch.dict(os.environ, {"GARMIN_USER": "test_user", "GARTH_FOLDER": self.garth_folder, "GARMIN_PASS": "test_pass"}):
             # Mock the garth functions

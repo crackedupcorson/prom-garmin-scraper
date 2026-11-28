@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from prometheus_client.core import Gauge
-from app.garmin.metrics import Metrics
+from garmin.metrics import Metrics
 
 class TestMetrics(unittest.TestCase):
     def setUp(self):

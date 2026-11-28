@@ -2,8 +2,7 @@ import os
 import garmin.utils as utils
 import pandas as pd
 from datetime import datetime, timedelta
-import csv,json
-import base64
+import csv,json 
 
 class Intervals:
 
@@ -23,57 +22,59 @@ class Intervals:
         url = self.intervals_base + endpoint
         resp = utils.make_request("get", url, self.intervals_api_key)
         athlete = resp.json()
-        sport_settings = athlete["sportSettings"]
-        for sport_setting in sport_settings:
-            if sport_setting["mmp_model"] is not None:
-                mmp_model = sport_setting["mmp_model"]
-                if mmp_model["ftp"] is not None:
-                    self.ftp = int(mmp_model["ftp"])
-                    break
+        if "sportSettings" in athlete and athlete["sportSettings"] is not None:
+            sport_settings = athlete["sportSettings"]
+            for sport_setting in sport_settings:
+                if sport_setting["mmp_model"] is not None:
+                    mmp_model = sport_setting["mmp_model"]
+                    if mmp_model["ftp"] is not None:
+                        self.ftp = int(mmp_model["ftp"])
+                        break
         
+    # doesn't appear to be used
+    # def get_latest_activity(self):
+    #     activities_csv = self.get_activities()
+    #     activities = csv.reader(activities_csv.splitlines())
+    #     next(activities)
+    #     activity=next(activities)
+    #     id = activity[0]
+    #     return id
 
-    def get_latest_activity(self):
-        activities_csv = self.get_activities()
-        activities = csv.reader(activities_csv.splitlines())
-        next(activities)
-        activity=next(activities)
-        id = activity[0]
-        return id
-    
-    def found_new_activity(self):
-        new_activity = False
-        activities = self.get_activities()
-        try: 
-            activities = activities.decode('utf-8')
-        except UnicodeDecodeError:
-            print("utf-8-sig encoding")
-            activities = activities.decode('utf-8-sig')
-        if not os.path.isfile(self.activities_file_path):
-             with open(self.activities_file_path, 'w') as f:
-                f.write(activities)
-        if os.path.isfile(self.activities_file_path):
-            existing_row_count = sum(1 for line in open(self.activities_file_path))
-            reader = csv.reader(activities.splitlines())
-            new_row_count = sum(1 for _ in reader)
-            if new_row_count > existing_row_count:
-                new_activity = True
-                with open(self.activities_file_path, 'w') as f:
-                    try:
-                        f.write(activities)
-                    except UnicodeDecodeError:
-                       print("what?")
-                print(f"Existing count: {existing_row_count}\n New Row Count: {new_row_count}")
-        return new_activity
+    # doesnt appear to be used    
+    # def found_new_activity(self):
+    #     new_activity = False
+    #     activities = self.get_activities()
+    #     try: 
+    #         activities = activities.decode('utf-8')
+    #     except UnicodeDecodeError:
+    #         print("utf-8-sig encoding")
+    #         activities = activities.decode('utf-8-sig')
+    #     if not os.path.isfile(self.activities_file_path):
+    #          with open(self.activities_file_path, 'w') as f:
+    #             f.write(activities)
+    #     if os.path.isfile(self.activities_file_path):
+    #         existing_row_count = sum(1 for line in open(self.activities_file_path))
+    #         reader = csv.reader(activities.splitlines())
+    #         new_row_count = sum(1 for _ in reader)
+    #         if new_row_count > existing_row_count:
+    #             new_activity = True
+    #             with open(self.activities_file_path, 'w') as f:
+    #                 try:
+    #                     f.write(activities)
+    #                 except UnicodeDecodeError:
+    #                    print("what?")
+    #             print(f"Existing count: {existing_row_count}\n New Row Count: {new_row_count}")
+    #    return new_activity
 
     def get_activities_in_last_x_weeks(self, weeks):
         date = utils.get_date_from_weeks(weeks)
         endpoint = f"/api/v1/athlete/0/activities?oldest={date}"
         url = self.intervals_base + endpoint
         resp = utils.make_request("get", url, self.intervals_api_key)
-        if resp is not None:
+        activities = []
+        if resp.text != "" and json.loads(resp.text) != []:
             activities = json.loads(resp.text)
-            return activities
-        return None
+        return activities
     
     def get_activity_ids(self, activities):
         activity_ids = []
