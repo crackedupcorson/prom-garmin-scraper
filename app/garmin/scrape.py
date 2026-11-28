@@ -53,7 +53,7 @@ class Scrape():
 
     def check_last_sync(self, dailies):
         scrape_time = datetime.datetime.now()
-        if dailies["lastUploadSyncTime"]:
+        if "lastUploadSyncTime" in dailies:
             sync_time = dailies["lastUploadSyncTime"]
             sync_time = datetime.datetime.fromtimestamp(sync_time / 1000.0)
             time_difference = scrape_time - sync_time
@@ -63,9 +63,12 @@ class Scrape():
                 self.send_message(msg)
                 
     def send_message(self, msg):
+        message_sent = False
         client = WebClient(token=self.slack_auth_token)
         try:
             result = client.chat_postMessage(channel=self.slack_channel, text=msg)
-            print(result)
+            if result["ok"]:
+                message_sent = True
         except SlackApiError as e:
             print(f"Error: {e}")
+        return message_sent
